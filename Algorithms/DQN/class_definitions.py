@@ -289,7 +289,7 @@ class Agent:
 
         return compiled_frames_test
 
-    def replay(self,learning_rate,num_episodes,batch_size,training_mode=False):
+    def replay(self,num_episodes,batch_size,training_mode=False):
 
         with tf.Session() as sess:
 
