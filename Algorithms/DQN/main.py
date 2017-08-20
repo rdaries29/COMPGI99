@@ -2,6 +2,11 @@
 # Institution: University College London
 # Developer: Russel Daries (16079408)
 
+import sys
+sys.path.insert(0, '/Users/russeldaries/Documents/University_College_London/Computer_Science/Courses/Dissertation/UCABRSD/Code/Source_Code/COMPGI99/Common')
+
+from common_imports import *
+
 learning_rate = [0.001]
 epochs = 3
 batch_size = 32
@@ -36,6 +41,9 @@ if(save_path_var):
 def main(agent):
 
     env = gym.make(agent)
+
+    print('-------Creating Agent-------')
+
 
     agent = Agent(env,learning_rate)
 
