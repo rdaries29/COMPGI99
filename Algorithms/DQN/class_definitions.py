@@ -3,6 +3,47 @@
 # Developer: Russel Daries (16079408)
 
 # Define class for Agent
+from collections import deque
+import numpy as np
+import tensorflow as tf
+import random
+import pandas as pd
+import pdb
+
+from common_methods import *
+
+
+def discretize_actions(output_nodes_vec):
+
+    maximum_indices = tf.argmax(output_nodes_vec,axis=2)
+    action_matrix= quantize(maximum_indices)
+
+    maximum_values = tf.reduce_max(output_nodes_vec,axis=2)
+    maximum_values = tf.reduce_sum(maximum_values,axis=1)
+
+    return action_matrix,maximum_values
+
+def quantize(maximum_index_vector):
+
+    dict_mapping = {0:-1, 1:-0.5, 2:0, 3:0.5, 4:1}
+    dict_keys = tf.Variable(initial_value=[0,1,2,3,4])
+    dict_values = tf.Variable(initial_value=[-1,-0.5,0,0.5,1])
+    # pdb.set_trace()
+    table = tf.contrib.lookup.HashTable(tf.contrib.lookup.KeyValueTensorInitializer(dict_keys,dict_values), -1)
+    out_tensor = table.lookup(tf.cast(maximum_index_vector,dtype=tf.int32))
+
+    # action_matrix = tf.map_fn(fn = mapping,elems=maximum_index_vector)
+
+    return out_tensor
+
+def mapping(input_vec):
+
+    dict_mapping = {0:-1, 1:-0.5, 2:0, 3:0.5, 4:1}
+
+    output_vec = [dict_mapping[k] for k in input_vec]
+
+    return output_vec
+
 
 class Agent:
 
@@ -31,9 +72,11 @@ class Agent:
 
         self.env = enviroment
         self.state_dims = self.env.observation_space.shape[0]
-        self.num_actions = self.env.action_space.n
+        self.num_actions = self.env.action_space.shape[0]
         self.steps = 0
         self.alpha = 0.004
+        self.discrete_levels = 5
+        self.build_dqn()
 
     def action(self,sess,experiments,construct_agent):
 
@@ -56,9 +99,10 @@ class Agent:
 
             for time_step in range(self.max_time_steps):
 
-                if(construct_agent):
-
-                    self.env.render()
+                # if(construct_agent):
+                #
+                #     self.env.render()
+                self.env.render()
 
                 # Re-shape the state
                 temp_state = np.reshape(state,(1,-1))
@@ -68,7 +112,7 @@ class Agent:
                 # Step in enviroment
                 next_state_test,reward,done,_ = self.env.step(action)
 
-                limited_reward = self.limit_return(reward)
+                limited_reward = limit_return(reward)
 
                 next_frame_test = self.frame_preprocess(next_state_test)
 
@@ -85,7 +129,7 @@ class Agent:
                 if(done):
 
                     rewards.append(episode_reward)
-                    experiment_lengths.append([i+1])
+                    experiment_lengths.append([time_step+1])
                     scores.append(score)
                     break
                 #
@@ -117,7 +161,7 @@ class Agent:
 
                 next_state,reward,done,_ = self.env.step(action)
 
-                limited_reward = self.limit_return(reward)
+                limited_reward = limit_return(reward)
 
                 pre_proc_frame = self.frame_preprocess(next_state)
 
@@ -150,8 +194,8 @@ class Agent:
         # Place holders for 4 screen stacked inputs to NN
         self.state_arrays = tf.placeholder(shape=[None, self.state_dims * self.frame_stack_size], dtype=tf.float32)
         self.next_state_arrays = tf.placeholder(shape=[None, self.state_dims * self.frame_stack_size], dtype=tf.float32)
-        self.current_actions_holder = tf.placeholder(shape=[None,self.num_actions], dtype=tf.float32)
-        self.next_actions_holder  = tf.placeholder(shape=[None,self.num_actions], dtype=tf.float32)
+        # self.current_actions_holder = tf.placeholder(shape=[None,self.num_actions], dtype=tf.float32)
+        # self.next_actions_holder  = tf.placeholder(shape=[None,self.num_actions], dtype=tf.float32)
         self.rewards_holder = tf.placeholder(shape=[None,], dtype=tf.float32)
         self.done_holder = tf.placeholder(shape=[None,], dtype=tf.float32)
 
@@ -164,20 +208,26 @@ class Agent:
             with tf.name_scope("T_net"):
                 self.t_network_current = self.create_q_network(self.num_actions,self.next_state_arrays)
 
-        self.q_predict = tf.argmax(self.q_network_current,1)
+        q_prediction_matrix = tf.reshape(self.q_network_current,shape=[-1,3,5])
 
-        self.current_av = tf.reduce_sum(self.q_network_current*self.current_actions_holder,
-                                        reduction_indices=[1,])
+        q_prediction_actions,q_prediction_value = discretize_actions(q_prediction_matrix)
 
-        self.t_predict = tf.argmax(self.t_network_current,1)
+        self.q_predict = q_prediction_actions
 
-        self.max_q_new = tf.reduce_sum(self.t_network_current*self.next_actions_holder,
-                                       reduction_indices=[1,]) * self.done_holder
+        self.current_av = q_prediction_value
+
+        t_prediction_matrix = tf.reshape(self.q_network_current,shape=[-1,3,5])
+
+        t_prediction_actions,t_prediction_value = discretize_actions(t_prediction_matrix)
+
+        self.t_predict = t_prediction_actions
+
+        self.max_q_new = t_prediction_value * self.done_holder
 
         self.new_av = self.rewards_holder + (self.discount * self.max_q_new)
 
         #temporal difference
-        self.td = limit_return(self.new_av-self.current_av)
+        self.td = tf.clip_by_value(self.new_av-self.current_av,clip_value_min=-1,clip_value_max=1)
 
         # Be sure to clip the gradients so they don't vanish
 
@@ -186,6 +236,7 @@ class Agent:
         global_step = tf.Variable(0, trainable=False)
         starter_learning_rate = self.learning_rate
         learning_rate = tf.train.exponential_decay(starter_learning_rate, global_step, 10000, 0.99, staircase=True)
+        # pdb.set_trace()
 
         if(self.select=='RMS'):
             self.optimize = tf.train.RMSPropOptimizer(learning_rate=learning_rate,momentum=0.9).minimize(self.loss)
@@ -215,37 +266,51 @@ class Agent:
             self.target_network_up = tf.group(*self.target_network_up)
 
 
+
     # Q Network function creation
     def create_q_network(self,num_actions,state_dims):
 
-        input_layer = tf.reshape(state_dims,[-1,self.image_size,self.image_size,self.frame_stack])
+        # input_layer = tf.reshape(state_dims,[-1,self.image_size,self.image_size,self.frame_stack])
+        input_layer = tf.reshape(state_dims,[-1,self.state_dims,self.frame_stack_size,1])
+        # input_layer = tf.expand_dims(input_layer,dim=3)
 
         # 3 Convolutional Layers as specified in Mnih DQN paper
         # 32 20x20 feature map
-        conv_layer_1 = tf.layers.conv2d(inputs=input_layer,kernel_size=20,padding='valid',filters=32,strides=(1,1),activation=tf.nn.relu)
-        # 64 9x9 feature map
-        conv_layer_2 = tf.layers.conv2d(inputs=conv_layer_1,kernel_size=9,padding='valid',filters=64,strides=(1,1),activation=tf.nn.relu)
-        # 64 7x7 feature map
-        conv_layer_3 = tf.layers.conv2d(inputs=conv_layer_2, kernel_size=7, padding='valid', filters=64, strides=(1,1),activation=tf.nn.relu)
+        conv_layer_1 = tf.layers.conv2d(inputs=input_layer,kernel_size=[4,2],padding='valid',filters=32,strides=(1,1),activation=tf.nn.relu)
 
-        conv_2d_flatten = tf.reshape(conv_layer_3,[-1,7 * 7 * 64])
+        # 64 9x9 feature map
+        # pdb.set_trace()
+
+        conv_layer_2 = tf.layers.conv2d(inputs=conv_layer_1,kernel_size=[3,2],padding='valid',filters=64,strides=(1,1),activation=tf.nn.relu)
+
+        # 64 7x7 feature map
+        conv_layer_3 = tf.layers.conv2d(inputs=conv_layer_2, kernel_size=2, padding='valid', filters=64, strides=(1,1),activation=tf.nn.relu)
+
+        # conv_2d_flatten = tf.reshape(conv_layer_3,[-1,9 * 1 * 64])
+        conv_2d_flatten = tf.contrib.layers.flatten(conv_layer_2)
 
         fully_connected = tf.layers.dense(inputs=conv_2d_flatten,units=512,activation=tf.nn.relu)
 
-        Q = tf.layers.dense(inputs=fully_connected,units=num_actions)
+        Q = tf.layers.dense(inputs=fully_connected,units=num_actions*self.discrete_levels)
 
         return Q
 
     # Function to train network
-    def train(self,sess,current_states, next_states, current_actions, next_actions, rewards,done_flag):
+    def train(self,sess,current_states,next_states,rewards,done_flag):
 
         return sess.run([self.optimize,self.loss,self.summary_merged,self.q_network_current],
                         feed_dict = {self.state_arrays: current_states,
                                      self.next_state_arrays: next_states,
-                                     self.current_actions_holder: current_actions,
-                                     self.next_actions_holder: next_actions,
                                      self.rewards_holder: rewards,
                                      self.done_holder: done_flag})
+
+        # return sess.run([self.optimize, self.loss, self.summary_merged, self.q_network_current],
+        #             feed_dict={self.state_arrays: current_states,
+        #                        self.next_state_arrays: next_states,
+        #                        self.current_actions_holder: current_actions,
+        #                        self.next_actions_holder: next_actions,
+        #                        self.rewards_holder: rewards,
+        #                        self.done_holder: done_flag})
 
     # Function call to predict next Q (return)
     def q_prediction(self,sess,x_input):
@@ -337,7 +402,7 @@ class Agent:
 
                         next_state,reward,done,_ = self.env.step(action)
 
-                        limited_reward = self.limit_return(reward)
+                        limited_reward = limit_return(reward)
 
                         pre_proc_state = self.frame_preprocess(next_state)
 
@@ -348,7 +413,7 @@ class Agent:
                         if(done):
                             next_state = None
                         else:
-                            passs
+                            pass
 
                         self.add_episode((state,action,limited_reward,next_state))
 
@@ -363,15 +428,13 @@ class Agent:
 
                         next_actions, _ = self.q_prediction_target(sess,next_states)
 
-                        current_actions_hot = one_hot_convert(batch_actions, self.num_actions)
-                        next_actions_hot = one_hot_convert(next_actions, self.num_actions)
+                        # current_actions_hot = one_hot_convert(batch_actions, self.num_actions)
+                        # next_actions_hot = one_hot_convert(next_actions, self.num_actions)
 
                         done_flags = done_state_check(next_states,batch_size)
 
                         _, agent_loss,_, q_vals = self.train(sess,batch_states,
                                                              next_states,
-                                                             current_actions_hot,
-                                                             next_actions_hot,
                                                              batch_rewards,
                                                              done_flags)
 
@@ -393,16 +456,15 @@ class Agent:
                         print('Episode: ' + str(int(i)) + ', Mean Reward:' + str(mean_rewards) + ', Mean Epi Length:' + str(mean_experiment_lengths) + ', Loss:' + str(agent_loss))
 
     # # Function for preprocessing input screen for games
-    # def frame_preprocess(self,input):
-    #
-    #     #Edit screen size/re-size
-    #
-    #     #Edit frame colour
-    #
-    #
-    #     # Edit data type
-    #
-    #
-    #
-    #     return frame_conversion
+    def frame_preprocess(self,input):
+
+        #Edit screen size/re-size
+
+        #Edit frame colour
+
+
+        # Edit data type
+
+
+        return input
 
