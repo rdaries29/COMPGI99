@@ -9,8 +9,8 @@ import random
 import gym
 import roboschool
 
-from skimage.transform import resize
-from skimage.color import rgb2gray
+# from scikit.transform import resize
+# from scikit.color import rgb2gray
 from collections import deque
 
 from common_methods import *

@@ -10,6 +10,8 @@ import random
 import pandas as pd
 import pdb
 
+
+
 from common_methods import *
 
 
@@ -25,42 +27,32 @@ def discretize_actions(output_nodes_vec):
 
 def quantize(maximum_index_vector):
 
-    dict_mapping = {0:-1, 1:-0.5, 2:0, 3:0.5, 4:1}
-    dict_keys = tf.Variable(initial_value=[0,1,2,3,4])
-    dict_values = tf.Variable(initial_value=[-1,-0.5,0,0.5,1])
-    # pdb.set_trace()
-    table = tf.contrib.lookup.HashTable(tf.contrib.lookup.KeyValueTensorInitializer(dict_keys,dict_values), -1)
-    out_tensor = table.lookup(tf.cast(maximum_index_vector,dtype=tf.int32))
-
-    # action_matrix = tf.map_fn(fn = mapping,elems=maximum_index_vector)
+    out_tensor = tf.map_fn(lambda x: (0.5*x)-1,tf.cast(maximum_index_vector,dtype=tf.float32))
 
     return out_tensor
 
-def mapping(input_vec):
-
-    dict_mapping = {0:-1, 1:-0.5, 2:0, 3:0.5, 4:1}
-
-    output_vec = [dict_mapping[k] for k in input_vec]
-
-    return output_vec
-
-
 class Agent:
 
-    def __init__(self, enviroment, learning_rate):
+    def __init__(self, enviroment, learning_rate,buffer_size,discount,all_paths,algorithm):
 
+        self.algorithm_name = algorithm
         self.frame_stack_size = 4
-        self.experience_buffer_size = 500
-        self.discount = 0.99
-        self.max_episodes = 300
+        self.experience_buffer_size = buffer_size
+        self.discount = discount
         self.epsilon = 0.05
         self.select = 'RMS'
-        self.result_display = 10
-        self.max_time_steps = 300
+        self.result_display = 500
+        self.max_time_steps = 3000
         self.image_size = 84
+
+        self.model_path = all_paths[0]
+        self.variable_path = all_paths[1]
+        self.plot_path = all_paths[2]
+        self.table_path = all_paths[3]
 
         self.experience_buffer_episodes = deque(maxlen=self.experience_buffer_size)
         self.episode_lens = np.array([])
+        self.target_network_up_count = 1000
 
         self.frame_buffer_train = deque(maxlen = self.frame_stack_size)
         self.frame_buffer_test = deque(maxlen= self.frame_stack_size)
@@ -74,15 +66,15 @@ class Agent:
         self.state_dims = self.env.observation_space.shape[0]
         self.num_actions = self.env.action_space.shape[0]
         self.steps = 0
-        self.alpha = 0.004
+        self.alpha = 0.04
         self.discrete_levels = 5
         self.build_dqn()
 
     def action(self,sess,experiments,construct_agent):
 
-        rewards = []
-        experiment_lengths = []
-        scores = []
+        all_rewards = []
+        episode_steps = []
+        all_scores = []
 
         for episode in range(experiments):
 
@@ -90,7 +82,7 @@ class Agent:
 
             pre_proc_state = self.frame_preprocess(state)
 
-            self.add_frame_test(pre_proc_state)
+            self.add_frame_test(pre_proc_state,4)
 
             state = self.compile_frame_test()
 
@@ -99,16 +91,15 @@ class Agent:
 
             for time_step in range(self.max_time_steps):
 
-                # if(construct_agent):
-                #
-                #     self.env.render()
-                self.env.render()
+                if(construct_agent):
+
+                    self.env.render()
 
                 # Re-shape the state
                 temp_state = np.reshape(state,(1,-1))
 
                 action,_ = self.q_prediction(sess,temp_state)
-
+                action = np.squeeze(action)
                 # Step in enviroment
                 next_state_test,reward,done,_ = self.env.step(action)
 
@@ -128,16 +119,12 @@ class Agent:
 
                 if(done):
 
-                    rewards.append(episode_reward)
-                    experiment_lengths.append([time_step+1])
-                    scores.append(score)
+                    all_rewards.append(episode_reward)
+                    episode_steps.append([time_step+1])
+                    all_scores.append(score)
                     break
-                #
-                # if(done):
-                #
-                #     rewards.append(-1*self.discount**episode)
 
-        return rewards,experiment_lengths,scores
+        return np.mean(all_rewards),np.std(all_rewards),np.mean(episode_steps),np.std(episode_steps),np.mean(all_scores),np.std(all_scores)
 
 
     def create_experience_replay_buffer(self,sess):
@@ -148,16 +135,18 @@ class Agent:
 
             pre_proc_state = self.frame_preprocess(state)
 
-            self.add_frame_train(pre_proc_state)
+            self.add_frame_train(pre_proc_state,4)
 
-            state = self.compile_frame_train()
+            state = self.compile_frames_train()
 
             for time_step in range(self.max_time_steps):
 
                 # Check state dimensions for this input
-                temp_state = np.reshape(state,(1,-1))
+                temp_state = state
+                temp_state = np.reshape(temp_state,(1,-1))
 
                 action, _ = self.q_prediction(sess,temp_state)
+                action = np.squeeze(action)
 
                 next_state,reward,done,_ = self.env.step(action)
 
@@ -170,10 +159,11 @@ class Agent:
                 next_state = self.compile_frames_train()
 
                 if(done):
+                    next_state = np.zeros((4,15))
+                else:
+                    pass
 
-                    next_state = None
-
-                self.add_episode((state,action,limited_reward,next_state))
+                self.add_episode((state,action,limited_reward,next_state,done))
 
                 state = next_state
 
@@ -200,13 +190,11 @@ class Agent:
         self.done_holder = tf.placeholder(shape=[None,], dtype=tf.float32)
 
         # Create convolutional networks
-        with tf.name_scope("predict"):
-            with tf.name_scope("Q_net"):
-                self.q_network_current = self.create_q_network(self.num_actions,self.state_arrays)
+        with tf.variable_scope('Q_net'):
+            self.q_network_current = self.create_q_network(self.num_actions,self.state_arrays)
 
-        with tf.name_scope("estimate"):
-            with tf.name_scope("T_net"):
-                self.t_network_current = self.create_q_network(self.num_actions,self.next_state_arrays)
+        with tf.variable_scope('T_net'):
+            self.t_network_current = self.create_q_network(self.num_actions,self.next_state_arrays)
 
         q_prediction_matrix = tf.reshape(self.q_network_current,shape=[-1,3,5])
 
@@ -216,7 +204,7 @@ class Agent:
 
         self.current_av = q_prediction_value
 
-        t_prediction_matrix = tf.reshape(self.q_network_current,shape=[-1,3,5])
+        t_prediction_matrix = tf.reshape(self.t_network_current,shape=[-1,3,5])
 
         t_prediction_actions,t_prediction_value = discretize_actions(t_prediction_matrix)
 
@@ -256,8 +244,8 @@ class Agent:
             self.target_network_up = []
 
             # Updating the target network with the Q Network parameters
-            q_variables = tf.get_collections(tf.GraphKeys.TRAINABLE_VARIABLES, scope="q_net")
-            t_variables = tf.get_collections(tf.GraphKeys.TRAINABLE_VARIABLES, scope="t_net")
+            q_variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='Q_net')
+            t_variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='T_net')
 
             for v_source, v_target in zip(q_variables, t_variables):
                 update_op = v_target.assign_sub(self.alpha* (v_target - v_source))
@@ -265,12 +253,13 @@ class Agent:
 
             self.target_network_up = tf.group(*self.target_network_up)
 
+    def update_target_network(self,sess):
 
+        return sess.run([self.target_network_up])
 
     # Q Network function creation
     def create_q_network(self,num_actions,state_dims):
 
-        # input_layer = tf.reshape(state_dims,[-1,self.image_size,self.image_size,self.frame_stack])
         input_layer = tf.reshape(state_dims,[-1,self.state_dims,self.frame_stack_size,1])
         # input_layer = tf.expand_dims(input_layer,dim=3)
 
@@ -279,15 +268,13 @@ class Agent:
         conv_layer_1 = tf.layers.conv2d(inputs=input_layer,kernel_size=[4,2],padding='valid',filters=32,strides=(1,1),activation=tf.nn.relu)
 
         # 64 9x9 feature map
-        # pdb.set_trace()
-
         conv_layer_2 = tf.layers.conv2d(inputs=conv_layer_1,kernel_size=[3,2],padding='valid',filters=64,strides=(1,1),activation=tf.nn.relu)
 
         # 64 7x7 feature map
         conv_layer_3 = tf.layers.conv2d(inputs=conv_layer_2, kernel_size=2, padding='valid', filters=64, strides=(1,1),activation=tf.nn.relu)
 
-        # conv_2d_flatten = tf.reshape(conv_layer_3,[-1,9 * 1 * 64])
-        conv_2d_flatten = tf.contrib.layers.flatten(conv_layer_2)
+        conv_2d_flatten = tf.reshape(conv_layer_3,[-1,9 * 1 * 64])
+        # conv_2d_flatten = tf.contrib.layers.flatten(conv_layer_2)
 
         fully_connected = tf.layers.dense(inputs=conv_2d_flatten,units=512,activation=tf.nn.relu)
 
@@ -303,14 +290,6 @@ class Agent:
                                      self.next_state_arrays: next_states,
                                      self.rewards_holder: rewards,
                                      self.done_holder: done_flag})
-
-        # return sess.run([self.optimize, self.loss, self.summary_merged, self.q_network_current],
-        #             feed_dict={self.state_arrays: current_states,
-        #                        self.next_state_arrays: next_states,
-        #                        self.current_actions_holder: current_actions,
-        #                        self.next_actions_holder: next_actions,
-        #                        self.rewards_holder: rewards,
-        #                        self.done_holder: done_flag})
 
     # Function call to predict next Q (return)
     def q_prediction(self,sess,x_input):
@@ -354,35 +333,33 @@ class Agent:
 
         return compiled_frames_test
 
-    def replay(self,num_episodes,batch_size,training_mode=False):
+    def replay(self,epochs,batch_size,training_mode=False,construct_agent=False):
 
         with tf.Session() as sess:
 
             sess.run(self.init)
 
             #writer.add_graph(sess.graph)
-
-            all_mean_rewards = []
-            all_std_rewards = []
-            all_std_performances = []
-            all_std_performances.append(0)
-            performance = []
-            performance.append(0)
-            loss = [0.99]
+            steps = 0
+            low_score = -50
+            rewards_curve = []
+            episode_length_curve = []
+            scores_curve = []
+            loss_curve_training = [0.99]
 
             self.create_experience_replay_buffer(sess)
 
-            if(training_mode):
+            if training_mode:
 
                 print('------ Training Mode underway-----')
 
-                for i in range(num_episodes):
+                for i in range(epochs):
 
                     state = self.env.reset()
 
                     pre_proc_state = self.frame_preprocess(state)
 
-                    self.add_frame_train(pre_proc_state)
+                    self.add_frame_train(pre_proc_state,4)
 
                     state = self.compile_frames_train()
 
@@ -390,9 +367,11 @@ class Agent:
                     for j in range(self.max_time_steps):
 
                         # Check state expanding
-                        temp_state = np.reshape(state,(1,-1))
+                        temp_state = state
+                        temp_state = np.reshape(temp_state,(1,-1))
 
                         action, _ = self.q_prediction(sess,temp_state)
+                        action = np.squeeze(action)
 
                         rand_number = np.random.rand(1)
 
@@ -411,11 +390,11 @@ class Agent:
                         next_state = self.compile_frames_train()
 
                         if(done):
-                            next_state = None
+                            next_state = np.zeros((4,15))
                         else:
                             pass
 
-                        self.add_episode((state,action,limited_reward,next_state))
+                        self.add_episode((state,action,limited_reward,next_state,done))
 
                         batch_data = self.sample_episodes(batch_size)
 
@@ -424,38 +403,66 @@ class Agent:
                         batch_rewards = list(map(lambda x:x[2], batch_data))
                         next_states = list(map(lambda x:x[3], batch_data))
 
-                        #current_action,Q_current = self.q_prediction(sess,batch_states)
+                        done_flags = list(map(lambda x:x[4], batch_data))
+                        done_flags_values = (~np.array(done_flags))*1
 
-                        next_actions, _ = self.q_prediction_target(sess,next_states)
+                        temp_batch_states = np.reshape(batch_states,(batch_size,-1))
+                        temp_next_states = np.reshape(next_states,(batch_size,-1))
 
-                        # current_actions_hot = one_hot_convert(batch_actions, self.num_actions)
-                        # next_actions_hot = one_hot_convert(next_actions, self.num_actions)
+                        next_actions, _ = self.q_prediction_target(sess,temp_next_states)
 
-                        done_flags = done_state_check(next_states,batch_size)
-
-                        _, agent_loss,_, q_vals = self.train(sess,batch_states,
-                                                             next_states,
+                        _, agent_loss,_, q_vals = self.train(sess,temp_batch_states,
+                                                             temp_next_states,
                                                              batch_rewards,
-                                                             done_flags)
+                                                             done_flags_values)
 
-                        #writer.add_summary(summary, i)
-
+                        loss_curve_training.append(agent_loss)
                         state = next_state
 
                         if(done):
                             break
 
+                    if (steps % self.result_display == 0):
 
-                    if (i % self.result_display == 0):
+                        mean_reward,std_reward, mean_experiment_length,std_experiment_length, mean_score,std_score = self.action(sess, 1,construct_agent)
 
-                        rewards, experiment_lengths, scores = self.action(sess, 100)
+                        print('Epoch: ' + str(int(i)) + ', Mean Reward:' + str(mean_reward)+ ', Std Reward:' + str(std_reward)+ ', Mean Epi Length:' + str(mean_experiment_length)+ ', Std Epi Length:' + str(std_experiment_length))
 
-                        mean_rewards,std_rewards = results(rewards)
-                        mean_experiment_lengths,std_experiment_lengths = results(experiment_lengths)
+                        rewards_curve.append(mean_reward)
+                        episode_length_curve.append(mean_experiment_length)
+                        scores_curve.append(mean_score)
 
-                        print('Episode: ' + str(int(i)) + ', Mean Reward:' + str(mean_rewards) + ', Mean Epi Length:' + str(mean_experiment_lengths) + ', Loss:' + str(agent_loss))
+                        if(mean_score>low_score):
+                            self.saver.save(sess,self.model_path+'model'+str(steps)+'.ckpt')
 
-    # # Function for preprocessing input screen for games
+                    if (steps % self.target_network_up_count == 0 and i is not 0):
+                        self.update_target_network(sess)
+                        print('---Target Network Updated---')
+                    steps+=1
+
+                save_path = self.saver.save(sess,self.model_path+'model.ckpt')
+                print('Model saved to: ',save_path)
+
+                plot_data(metric=rewards_curve, xlabel='x',ylabel='y',colour='b',filename=self.plot_path+'rewards_'+self.algorithm_name)
+                plot_data(metric=episode_length_curve, xlabel='x',ylabel='y', colour='g', filename=self.plot_path+'episodes_'+self.algorithm_name)
+                plot_data(metric=scores_curve, xlabel='x',ylabel='y', colour='m', filename=self.plot_path+'scores_'+self.algorithm_name)
+                plot_data(metric=loss_curve_training,xlabel='x',ylabel='Loss', colour='r', filename=self.plot_path+'loss_'+self.algorithm_name)
+                print('---Results Plotted---')
+            else:
+
+                print('------ Testing Mode underway-----')
+
+                self.saver.restore(sess,self.model_path+'model.ckpt')
+                mean_reward, std_reward, mean_experiment_length, std_experiment_length, mean_score, std_score = self.action(sess, 1,
+                                                                                                            construct_agent)
+                print('Mean Reward:' + str(mean_reward) + ', Std Reward:' + str(
+                    std_reward) + ', Mean Epi Length:' + str(mean_experiment_length) + ', Std Epi Length:' + str(
+                    std_experiment_length))
+
+                test_performance = {'reward':[mean_reward],'std_reward':[std_reward],'epi_length':[mean_experiment_length],'std_spi_length':[std_experiment_length],'mean_score':[mean_score],'std_score':[std_score]}
+                pd.DataFrame(test_performance).to_csv(self.table_path  + 'test_result.csv')
+
+# # Function for preprocessing input screen for games
     def frame_preprocess(self,input):
 
         #Edit screen size/re-size

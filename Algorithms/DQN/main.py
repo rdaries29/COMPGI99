@@ -6,50 +6,62 @@ import sys
 sys.path.insert(0, '/Users/russeldaries/Documents/University_College_London/Computer_Science/Courses/Dissertation/UCABRSD/Code/Source_Code/COMPGI99/Common')
 
 from common_imports import *
+from class_definitions import *
 
-learning_rate = [0.001]
+learning_rate = 0.01
 epochs = 3
-batch_size = 32
-num_episodes = 100
+batch_size = 256
+num_episodes = 3000
 seeding = 200
-experience_buffer_size = 100
+experience_buffer_size = 500
 construct_agent = False
 discount = 0.99
-save_path_var = False
-training_mode = False
+save_path_var = True
+training_mode = True
 
 # Problem Number
 algorithm = 'DQN'
 
+# Game
+games = ['hopper','walker','humanoid','humanoidflag']
+games_dict = {'hopper':env_hop,'walker':env_walk,'humanoid':env_human,'humanoidflag':env_human_flag}
+game_name = games[0]
+
 # Problem Model Path
-model_path = '../../Models/'+algorithm
+model_path = '../../Models/'+algorithm+'/'+game_name+'/model/'
 # Problem Variable Path
-variable_path = '../../Models/'+algorithm+'/variables'
+variable_path = '../../Models/'+algorithm+'/'+game_name+'/variables/'
 # Problem Plot Path
-plot_path = '../../Results/'+algorithm+'/plots'
+plot_path = '../../Results/'+algorithm+'/'+game_name+'/plots/'
 # Problem Table Path
-table_path = '../../Results/'+algorithm+'/tables'
+table_path = '../../Results/'+algorithm+'/'+game_name+'/tables/'
 # Tensorflow Summary Path
 tf_path = model_path
 
+all_paths = [model_path,variable_path,plot_path,table_path]
+
 if(save_path_var):
     # All paths save directory
-    all_save_path = '../../Models/'+algorithm+'/variables'+'/saved_paths.npz'
+    all_save_path = '../../Models/'+algorithm+'/'+game_name+'/variables'+'/saved_paths.npz'
     np.savez(all_save_path,model_path=model_path,variable_path=variable_path,plot_path=plot_path,table_path=table_path,tf_path=tf_path)
     print('Variables saved to: '+ all_save_path)
 
 def main(agent):
 
     env = gym.make(agent)
+    # print(env.action_space)
 
     print('-------Creating Agent-------')
 
+    agent = Agent(env,learning_rate,experience_buffer_size,discount,all_paths,algorithm)
 
-    agent = Agent(env,learning_rate)
+    if training_mode:
+        print('-------Training Model-------')
+    else:
+        print('-------Testing Model-------')
 
-    print('-------Training Model-------')
-
-    agent.replay(num_episodes,batch_size,training_mode)
+    agent.replay(num_episodes,batch_size,training_mode,construct_agent)
 
 if __name__ =='__main__':
-    main(env_hop)
+    print(games_dict[game_name])
+    main(games_dict[game_name])

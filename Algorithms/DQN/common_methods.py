@@ -2,11 +2,19 @@
 # Institution: University College London
 # Developer: Russel Daries (16079408)
 
+import numpy as np
+import matplotlib
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
+
+
 def limit_return(reward):
-    if reward > 0:
+    if reward > 1:
         return 1
-    elif reward < 0:
+    elif reward < -1:
         return -1
+    elif reward < 1 and reward > -1:
+        return reward
     else:
         return 0
 
@@ -53,3 +61,14 @@ def done_state_check(next_states,batch_size):
         count += 1
 
     return done_flags_vec
+
+# Plotting function for data metrics
+def plot_data(metric, xlabel, ylabel,colour,filename):
+
+    plt.plot(metric, colour, lw=2)
+    plt.grid(True)
+    plt.xlabel(xlabel, fontsize=18)
+    plt.ylabel(ylabel, fontsize=18)
+    # plt.title(title, fontsize=22)
+    plt.savefig(filename+ '_metrics.eps', bbox_inches='tight', format='eps', dpi=50)
+    plt.close()
