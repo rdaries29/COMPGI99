@@ -9,9 +9,11 @@ import tensorflow as tf
 import random
 import pandas as pd
 import pdb
-
-
-
+import gym
+from gym import wrappers
+import matplotlib
+matplotlib.use('TkAgg')
+from memory_profiler import profile
 from common_methods import *
 
 
@@ -33,7 +35,7 @@ def quantize(maximum_index_vector):
 
 class Agent:
 
-    def __init__(self, enviroment, learning_rate,buffer_size,discount,all_paths,algorithm):
+    def __init__(self, enviroment, learning_rate,buffer_size,discount,all_paths,algorithm,training_mode):
 
         self.algorithm_name = algorithm
         self.frame_stack_size = 4
@@ -41,18 +43,19 @@ class Agent:
         self.discount = discount
         self.epsilon = 0.05
         self.select = 'RMS'
-        self.result_display = 500
-        self.max_time_steps = 3000
+        self.result_display = 3000
+        self.max_time_steps = 100000
         self.image_size = 84
 
         self.model_path = all_paths[0]
         self.variable_path = all_paths[1]
         self.plot_path = all_paths[2]
         self.table_path = all_paths[3]
+        self.video_path = all_paths[4]
 
         self.experience_buffer_episodes = deque(maxlen=self.experience_buffer_size)
         self.episode_lens = np.array([])
-        self.target_network_up_count = 1000
+        self.target_network_up_count = 10000
 
         self.frame_buffer_train = deque(maxlen = self.frame_stack_size)
         self.frame_buffer_test = deque(maxlen= self.frame_stack_size)
@@ -61,6 +64,7 @@ class Agent:
         self.best = 120
         self.seeding = 200
         self.learning_rate = learning_rate
+        self.save_model_step = 500
 
         self.env = enviroment
         self.state_dims = self.env.observation_space.shape[0]
@@ -69,12 +73,82 @@ class Agent:
         self.alpha = 0.04
         self.discrete_levels = 5
         self.build_dqn()
+        self.training_mode = training_mode
 
-    def action(self,sess,experiments,construct_agent):
+
+    def action_during_training(self,sess,experiments,construct_agent,count_rendering):
 
         all_rewards = []
         episode_steps = []
         all_scores = []
+
+        if(count_rendering==0):
+            pass
+            # self.env = wrappers.Monitor(self.env, self.video_path, video_callable=None,force=True)
+        else:
+            pass
+
+        for episode in range(experiments):
+
+            state = self.env.reset()
+
+            pre_proc_state = self.frame_preprocess(state)
+
+            self.add_frame_test(pre_proc_state,4)
+
+            state = self.compile_frame_test()
+
+            episode_reward = 0
+            score = 0
+
+            for time_step in range(self.max_time_steps):
+
+                if(construct_agent):
+
+                    self.env.render()
+
+                # Re-shape the state
+                temp_state = np.reshape(state,(1,-1))
+
+                action,_ = self.q_prediction(sess,temp_state)
+                action = np.squeeze(action)
+                # Step in enviroment
+                next_state_test,reward,done,_ = self.env.step(action)
+
+                limited_reward = limit_return(reward)
+
+                next_frame_test = self.frame_preprocess(next_state_test)
+
+                # Add next frame to the stack
+
+                self.add_frame_test(next_frame_test)
+
+                state = self.compile_frame_test()
+
+                # Check this rewarding structure
+                episode_reward += (limited_reward * self.discount ** time_step)
+                score +=reward
+
+                if(done):
+
+                    all_rewards.append(episode_reward)
+                    episode_steps.append([time_step+1])
+                    all_scores.append(score)
+                    break
+
+        return np.mean(all_rewards),np.std(all_rewards),np.mean(episode_steps),np.std(episode_steps),np.mean(all_scores),np.std(all_scores)
+
+    @profile
+    def action(self,sess,experiments,construct_agent,record_videos):
+
+        all_rewards = []
+        episode_steps = []
+        all_scores = []
+
+        if(record_videos):
+            self.env = wrappers.Monitor(self.env, self.video_path, video_callable=None,force=True)
+        else:
+            pass
 
         for episode in range(experiments):
 
@@ -127,6 +201,7 @@ class Agent:
         return np.mean(all_rewards),np.std(all_rewards),np.mean(episode_steps),np.std(episode_steps),np.mean(all_scores),np.std(all_scores)
 
 
+
     def create_experience_replay_buffer(self,sess):
 
         for iteration in range(self.experience_buffer_size):
@@ -159,7 +234,7 @@ class Agent:
                 next_state = self.compile_frames_train()
 
                 if(done):
-                    next_state = np.zeros((4,15))
+                    next_state = np.zeros((self.frame_stack_size,int(self.num_actions*self.discrete_levels)))
                 else:
                     pass
 
@@ -194,9 +269,9 @@ class Agent:
             self.q_network_current = self.create_q_network(self.num_actions,self.state_arrays)
 
         with tf.variable_scope('T_net'):
-            self.t_network_current = self.create_q_network(self.num_actions,self.next_state_arrays)
+            self.t_network_current = tf.stop_gradient(self.create_q_network(self.num_actions,self.next_state_arrays))
 
-        q_prediction_matrix = tf.reshape(self.q_network_current,shape=[-1,3,5])
+        q_prediction_matrix = tf.reshape(self.q_network_current,shape=[-1,self.num_actions,self.discrete_levels])
 
         q_prediction_actions,q_prediction_value = discretize_actions(q_prediction_matrix)
 
@@ -204,7 +279,7 @@ class Agent:
 
         self.current_av = q_prediction_value
 
-        t_prediction_matrix = tf.reshape(self.t_network_current,shape=[-1,3,5])
+        t_prediction_matrix = tf.reshape(self.t_network_current,shape=[-1,self.num_actions,self.discrete_levels])
 
         t_prediction_actions,t_prediction_value = discretize_actions(t_prediction_matrix)
 
@@ -215,21 +290,28 @@ class Agent:
         self.new_av = self.rewards_holder + (self.discount * self.max_q_new)
 
         #temporal difference
-        self.td = tf.clip_by_value(self.new_av-self.current_av,clip_value_min=-1,clip_value_max=1)
+        self.td = (self.new_av-self.current_av)
 
         # Be sure to clip the gradients so they don't vanish
 
         self.loss = tf.reduce_mean(tf.square(self.td))
 
         global_step = tf.Variable(0, trainable=False)
-        starter_learning_rate = self.learning_rate
-        learning_rate = tf.train.exponential_decay(starter_learning_rate, global_step, 10000, 0.99, staircase=True)
-        # pdb.set_trace()
+        clip_gradients = 2.0
+        gradient_noise_scale = None
+        learning_rate_decay = tf.train.exponential_decay(self.learning_rate, global_step, 10000, 0.99, staircase=True)
 
         if(self.select=='RMS'):
-            self.optimize = tf.train.RMSPropOptimizer(learning_rate=learning_rate,momentum=0.9).minimize(self.loss)
+            self.optimize = tf.contrib.layers.optimize_loss(
+                loss=self.loss,
+                global_step=global_step,
+                learning_rate=learning_rate_decay,
+                optimizer=tf.train.RMSPropOptimizer(learning_rate=learning_rate_decay),
+                clip_gradients=clip_gradients,
+                gradient_noise_scale=gradient_noise_scale
+            )
         elif(self.select=='ADAM'):
-            self.optimize = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(self.loss)
+            self.optimize = tf.train.AdamOptimizer(learning_rate=learning_rate_decay).minimize(self.loss)
         else:
             pass
 
@@ -274,7 +356,6 @@ class Agent:
         conv_layer_3 = tf.layers.conv2d(inputs=conv_layer_2, kernel_size=2, padding='valid', filters=64, strides=(1,1),activation=tf.nn.relu)
 
         conv_2d_flatten = tf.reshape(conv_layer_3,[-1,9 * 1 * 64])
-        # conv_2d_flatten = tf.contrib.layers.flatten(conv_layer_2)
 
         fully_connected = tf.layers.dense(inputs=conv_2d_flatten,units=512,activation=tf.nn.relu)
 
@@ -333,145 +414,172 @@ class Agent:
 
         return compiled_frames_test
 
-    def replay(self,epochs,batch_size,training_mode=False,construct_agent=False):
+    def replay(self,epochs,batch_size,training_mode=False,construct_agent=False,record_videos=False):
 
         with tf.Session() as sess:
 
             sess.run(self.init)
 
             #writer.add_graph(sess.graph)
-            steps = 0
+            iterations = round(self.experience_buffer_size/batch_size)
+            count_rendering = 0
             low_score = -50
-            rewards_curve = []
-            episode_length_curve = []
-            scores_curve = []
-            loss_curve_training = [0.99]
+            epoch_rewards_curve = []
+            epoch_episode_length_curve = []
+            epoch_scores_curve = []
+            epoch_loss_curve_training = [0.99]
 
             self.create_experience_replay_buffer(sess)
 
             if training_mode:
 
-                print('------ Training Mode underway-----')
+                print('------ Training mode underway-----')
 
-                for i in range(epochs):
+                for epoch in range(epochs):
 
-                    state = self.env.reset()
+                    for i in range(iterations):
 
-                    pre_proc_state = self.frame_preprocess(state)
+                        state = self.env.reset()
 
-                    self.add_frame_train(pre_proc_state,4)
+                        pre_proc_state = self.frame_preprocess(state)
 
-                    state = self.compile_frames_train()
+                        self.add_frame_train(pre_proc_state,4)
+
+                        state = self.compile_frames_train()
 
 
-                    for j in range(self.max_time_steps):
+                        for j in range(self.max_time_steps):
 
-                        # Check state expanding
-                        temp_state = state
-                        temp_state = np.reshape(temp_state,(1,-1))
+                            # Check state expanding
+                            temp_state = state
+                            temp_state = np.reshape(temp_state,(1,-1))
 
-                        action, _ = self.q_prediction(sess,temp_state)
-                        action = np.squeeze(action)
+                            action, _ = self.q_prediction(sess,temp_state)
+                            action = np.squeeze(action)
 
-                        rand_number = np.random.rand(1)
+                            rand_number = np.random.rand(1)
 
-                        # Epsilon Greedy strategy exploration (Exploitation vs exploration)
-                        if(self.epsilon>rand_number):
-                            action = self.env.action_space.sample()
+                            # Epsilon Greedy strategy exploration (Exploitation vs exploration)
+                            if(self.epsilon>rand_number):
+                                action = self.env.action_space.sample()
 
-                        next_state,reward,done,_ = self.env.step(action)
+                            next_state,reward,done,_ = self.env.step(action)
 
-                        limited_reward = limit_return(reward)
+                            limited_reward = limit_return(reward)
 
-                        pre_proc_state = self.frame_preprocess(next_state)
+                            pre_proc_state = self.frame_preprocess(next_state)
 
-                        self.add_frame_train(pre_proc_state)
+                            self.add_frame_train(pre_proc_state)
 
-                        next_state = self.compile_frames_train()
+                            next_state = self.compile_frames_train()
 
-                        if(done):
-                            next_state = np.zeros((4,15))
-                        else:
-                            pass
+                            if(done):
+                                next_state = np.zeros((self.frame_stack_size,int(self.num_actions*self.discrete_levels)))
+                            else:
+                                pass
 
-                        self.add_episode((state,action,limited_reward,next_state,done))
+                            self.add_episode((state,action,limited_reward,next_state,done))
 
-                        batch_data = self.sample_episodes(batch_size)
+                            batch_data = self.sample_episodes(batch_size)
 
-                        batch_states = list(map(lambda x:x[0], batch_data))
-                        batch_actions = list(map(lambda x:x[1], batch_data))
-                        batch_rewards = list(map(lambda x:x[2], batch_data))
-                        next_states = list(map(lambda x:x[3], batch_data))
+                            batch_states = list(map(lambda x:x[0], batch_data))
+                            batch_actions = list(map(lambda x:x[1], batch_data))
+                            batch_rewards = list(map(lambda x:x[2], batch_data))
+                            next_states = list(map(lambda x:x[3], batch_data))
 
-                        done_flags = list(map(lambda x:x[4], batch_data))
-                        done_flags_values = (~np.array(done_flags))*1
+                            done_flags = list(map(lambda x:x[4], batch_data))
+                            done_flags_values = (~np.array(done_flags))*1
 
-                        temp_batch_states = np.reshape(batch_states,(batch_size,-1))
-                        temp_next_states = np.reshape(next_states,(batch_size,-1))
+                            temp_batch_states = np.reshape(batch_states,(batch_size,-1))
+                            temp_next_states = np.reshape(next_states,(batch_size,-1))
 
-                        next_actions, _ = self.q_prediction_target(sess,temp_next_states)
+                            next_actions, _ = self.q_prediction_target(sess,temp_next_states)
 
-                        _, agent_loss,_, q_vals = self.train(sess,temp_batch_states,
-                                                             temp_next_states,
-                                                             batch_rewards,
-                                                             done_flags_values)
+                            _, agent_loss,_, q_vals = self.train(sess,temp_batch_states,
+                                                                 temp_next_states,
+                                                                 batch_rewards,
+                                                                 done_flags_values)
 
-                        loss_curve_training.append(agent_loss)
-                        state = next_state
+                            state = next_state
 
-                        if(done):
-                            break
+                            if(done):
+                                break
 
-                    if (steps % self.result_display == 0):
+                        if (i % self.result_display == 0):
 
-                        mean_reward,std_reward, mean_experiment_length,std_experiment_length, mean_score,std_score = self.action(sess, 1,construct_agent)
+                            mean_reward,std_reward, mean_experiment_length,std_experiment_length, mean_score,std_score = self.action_during_training(sess, 10,construct_agent,count_rendering)
+                            count_rendering=1
+                            print('Epoch: ' + str(epoch) + ', Iteration Reward:' + str(mean_reward)+ ', Std Reward:' + str(std_reward)+ ', Mean Epi Length:' + str(mean_experiment_length)+ ', Std Epi Length:' + str(std_experiment_length))
 
-                        print('Epoch: ' + str(int(i)) + ', Mean Reward:' + str(mean_reward)+ ', Std Reward:' + str(std_reward)+ ', Mean Epi Length:' + str(mean_experiment_length)+ ', Std Epi Length:' + str(std_experiment_length))
+                        if(i % self.save_model_step ==0 and mean_score>low_score):
+                            self.saver.save(sess,self.model_path+'model'+str(i)+'.ckpt')
 
-                        rewards_curve.append(mean_reward)
-                        episode_length_curve.append(mean_experiment_length)
-                        scores_curve.append(mean_score)
+                        if (i % self.target_network_up_count == 0 and i is not 0):
+                            self.update_target_network(sess)
+                            print('---Target Network Updated---')
 
-                        if(mean_score>low_score):
-                            self.saver.save(sess,self.model_path+'model'+str(steps)+'.ckpt')
+                    epoch_reward, epoch_std_reward, epoch_experiment_length, epoch_std_experiment_length, epoch_score, epoch_std_score = self.action_during_training(sess, 10, construct_agent, count_rendering)
+                    count_rendering = 1
+                    print('Epoch: ' + str(epoch) + ', Reward:' + str(epoch_reward) + ', Std Reward:' + str(
+                        epoch_std_reward) + ', Epi Length:' + str(epoch_experiment_length) + ', Std Epi Length:' + str(
+                        epoch_std_experiment_length)+', Score: '+str(epoch_score)+',Std Score:'+str(epoch_std_score))
 
-                    if (steps % self.target_network_up_count == 0 and i is not 0):
-                        self.update_target_network(sess)
-                        print('---Target Network Updated---')
-                    steps+=1
+                    epoch_rewards_curve.append(epoch_reward)
+                    epoch_episode_length_curve.append(epoch_experiment_length)
+                    epoch_scores_curve.append(epoch_score)
+                    epoch_loss_curve_training.append(agent_loss)
 
                 save_path = self.saver.save(sess,self.model_path+'model.ckpt')
                 print('Model saved to: ',save_path)
 
-                plot_data(metric=rewards_curve, xlabel='x',ylabel='y',colour='b',filename=self.plot_path+'rewards_'+self.algorithm_name)
-                plot_data(metric=episode_length_curve, xlabel='x',ylabel='y', colour='g', filename=self.plot_path+'episodes_'+self.algorithm_name)
-                plot_data(metric=scores_curve, xlabel='x',ylabel='y', colour='m', filename=self.plot_path+'scores_'+self.algorithm_name)
-                plot_data(metric=loss_curve_training,xlabel='x',ylabel='Loss', colour='r', filename=self.plot_path+'loss_'+self.algorithm_name)
+                plot_data(metric=epoch_rewards_curve, xlabel='Epochs',ylabel='Discounted Return',colour='b',filename=self.plot_path+'rewards_'+self.algorithm_name)
+                plot_data(metric=epoch_episode_length_curve, xlabel='Epochs',ylabel='Episode Length', colour='g', filename=self.plot_path+'episodes_'+self.algorithm_name)
+                plot_data(metric=epoch_scores_curve, xlabel='Epochs',ylabel='Undiscounted Return', colour='m', filename=self.plot_path+'scores_'+self.algorithm_name)
+                plot_data(metric=epoch_loss_curve_training,xlabel='Epochs',ylabel='Loss', colour='r', filename=self.plot_path+'loss_'+self.algorithm_name)
                 print('---Results Plotted---')
             else:
 
                 print('------ Testing Mode underway-----')
 
                 self.saver.restore(sess,self.model_path+'model.ckpt')
-                mean_reward, std_reward, mean_experiment_length, std_experiment_length, mean_score, std_score = self.action(sess, 1,
-                                                                                                            construct_agent)
+                num_parameters = self.count_parameters(sess)
+                mean_reward, std_reward, mean_experiment_length, std_experiment_length, mean_score, std_score = self.action(sess, 10,
+                                                                                                            construct_agent,record_videos)
                 print('Mean Reward:' + str(mean_reward) + ', Std Reward:' + str(
                     std_reward) + ', Mean Epi Length:' + str(mean_experiment_length) + ', Std Epi Length:' + str(
                     std_experiment_length))
 
                 test_performance = {'reward':[mean_reward],'std_reward':[std_reward],'epi_length':[mean_experiment_length],'std_spi_length':[std_experiment_length],'mean_score':[mean_score],'std_score':[std_score]}
-                pd.DataFrame(test_performance).to_csv(self.table_path  + 'test_result.csv')
+                df = pd.DataFrame(test_performance)
+                writer = pd.ExcelWriter(self.table_path + 'test_result.xlsx', engine='xlsxwriter')
+                df.to_excel(writer, sheet_name='Sheet1')
+                writer.save()
 
 # # Function for preprocessing input screen for games
     def frame_preprocess(self,input):
 
-        #Edit screen size/re-size
-
-        #Edit frame colour
-
-
-        # Edit data type
-
-
         return input
 
+    def count_parameters(self,sess):
+        """Returns the number of parameters of a computational graph."""
+        parameter_trace_network = dict()
+        variables_names     = [v.name for v in tf.trainable_variables()]
+        values              = sess.run(variables_names)
+        n_params            = 0
+
+        for k, v in zip(variables_names, values):
+            print('-----------------------------------------')
+            print('Variable:\t{:20s} \t{:20} \tShape: {:}\t{:20} parameters'.format(k,str(v.dtype), v.shape, v.size))
+            parameter_trace_network[k]= [str(v.dtype),v.shape,v.size]
+
+            n_params += v.size
+
+        parameter_trace_network['number_params']= n_params
+
+        print('\n\n-----------------------------\nTotal # parameters:\t{}'.format(n_params))
+
+        df = pd.DataFrame(parameter_trace_network)
+        writer = pd.ExcelWriter(self.table_path + 'parameter_trace_network.xlsx', engine='xlsxwriter')
+        df.to_excel(writer, sheet_name='Sheet1')
+        writer.save()
+        return n_params

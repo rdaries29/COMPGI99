@@ -67,8 +67,8 @@ def plot_data(metric, xlabel, ylabel,colour,filename):
 
     plt.plot(metric, colour, lw=2)
     plt.grid(True)
-    plt.xlabel(xlabel, fontsize=18)
-    plt.ylabel(ylabel, fontsize=18)
+    plt.xlabel(xlabel, fontsize=12)
+    plt.ylabel(ylabel, fontsize=12)
     # plt.title(title, fontsize=22)
-    plt.savefig(filename+ '_metrics.eps', bbox_inches='tight', format='eps', dpi=50)
+    plt.savefig(filename+ '_metrics.pdf', bbox_inches='tight', format='pdf', dpi=50)
     plt.close()
