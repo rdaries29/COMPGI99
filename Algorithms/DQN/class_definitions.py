@@ -512,7 +512,8 @@ class Agent:
                             print('Epoch: ' + str(epoch) + ', Iteration Reward:' + str(mean_reward)+ ', Std Reward:' + str(std_reward)+ ', Mean Epi Length:' + str(mean_experiment_length)+ ', Std Epi Length:' + str(std_experiment_length))
 
                         if(i % self.save_model_step ==0 and mean_score>low_score):
-                            self.saver.save(sess,self.model_path+'model'+str(i)+'.ckpt')
+                            with tf.device("/cpu:0"):
+                                self.saver.save(sess,self.model_path+'model'+str(i)+'.ckpt')
 
                         if (i % self.target_network_up_count == 0 and i is not 0):
                             self.update_target_network(sess)
@@ -529,8 +530,9 @@ class Agent:
                     epoch_scores_curve.append(epoch_score)
                     epoch_loss_curve_training.append(agent_loss)
 
-                save_path = self.saver.save(sess,self.model_path+'model.ckpt')
-                print('Model saved to: ',save_path)
+                with tf.device("/cpu:0"):
+                    save_path = self.saver.save(sess,self.model_path+'model.ckpt')
+                    print('Model saved to: ',save_path)
 
                 plot_data(metric=epoch_rewards_curve, xlabel='Epochs',ylabel='Discounted Return',colour='b',filename=self.plot_path+'rewards_'+self.algorithm_name)
                 plot_data(metric=epoch_episode_length_curve, xlabel='Epochs',ylabel='Episode Length', colour='g', filename=self.plot_path+'episodes_'+self.algorithm_name)
