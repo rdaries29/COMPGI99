@@ -2,16 +2,18 @@
 # Institution: University College London
 # Developer: Russel Daries (16079408)
 
+import gym
+import roboschool
 import sys
 sys.path.insert(0,'../../Common')
 
-from common_imports import *
+from ddqn_common_methods import *
 from class_definitions import *
 from misc_definitions import *
 
 learning_rate = 0.0001
-epochs = 50
-batch_size = 32
+epochs = 30
+batch_size = 256
 experience_buffer_size = 1000000
 construct_agent = False
 discount = 0.99
@@ -20,7 +22,7 @@ training_mode = True
 record_test_videos = False
 
 # Problem Number
-algorithm = 'DQN'
+algorithm = 'DDQN'
 
 # Game
 games = ['hopper','walker','humanoid','humanoidflag']
