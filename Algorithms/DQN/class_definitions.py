@@ -10,9 +10,8 @@ import random
 import pandas as pd
 import pdb
 import gym
+
 from gym import wrappers
-import matplotlib
-matplotlib.use('TkAgg')
 from memory_profiler import profile
 from common_methods import *
 
@@ -529,6 +528,11 @@ class Agent:
                     epoch_episode_length_curve.append(epoch_experiment_length)
                     epoch_scores_curve.append(epoch_score)
                     epoch_loss_curve_training.append(agent_loss)
+
+                    np.savez(self.variable_path+'/saved_curves.npz', epoch_rewards_saved=epoch_rewards_curve, epoch_episode_length_saved=epoch_episode_length_curve, epoch_scores_saved=epoch_scores_curve,
+                             epoch_loss_curve_saved=epoch_loss_curve_training)
+
+                    # print(self.variable_path+'saved_curves.npz')
 
                 with tf.device("/cpu:0"):
                     save_path = self.saver.save(sess,self.model_path+'model.ckpt')

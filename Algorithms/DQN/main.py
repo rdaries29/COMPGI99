@@ -2,6 +2,9 @@
 # Institution: University College London
 # Developer: Russel Daries (16079408)
 
+import sys
+sys.path.insert(0,'../../Common')
+
 from common_imports import *
 from class_definitions import *
 
@@ -11,7 +14,7 @@ batch_size = 32
 experience_buffer_size = 1000000
 construct_agent = False
 discount = 0.99
-save_path_var = False
+save_path_var = True
 training_mode = True
 record_test_videos = False
 
