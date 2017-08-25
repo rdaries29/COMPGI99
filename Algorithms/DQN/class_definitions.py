@@ -42,7 +42,8 @@ class Agent:
         self.experience_buffer_size = buffer_size
         self.discount = discount
         self.final_epsilon = 0.1
-        self.epsilon = 0.8
+        self.initial_epsilon = 1.0
+        self.epsilon = self.initial_epsilon
         self.select = 'RMS'
         self.result_display = 2000
 
@@ -465,8 +466,7 @@ class Agent:
                                 action = self.env.action_space.sample()
 
                             if(self.epsilon > self.final_epsilon):
-                                global_steps += 1
-                                self.epsilon = self.discount ** (global_steps / decay_steps)
+                                self.epsilon -= (self.initial_epsilon-self.final_epsilon)/self.experience_buffer_size
                             else:
                                 self.epsilon = self.final_epsilon
 
