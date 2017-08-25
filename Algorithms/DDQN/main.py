@@ -14,7 +14,7 @@ from misc_definitions import *
 learning_rate = 0.00025
 epochs = 30
 batch_size = 256
-experience_buffer_size = 2000000
+experience_buffer_size = 1000000
 construct_agent = False
 discount = 0.99
 save_path_var = True
