@@ -55,7 +55,7 @@ class Agent:
 
         self.experience_buffer_episodes = deque(maxlen=self.experience_buffer_size)
         self.episode_lens = np.array([])
-        self.target_network_up_count = 800
+        self.target_network_up_count = 1000
 
         self.frame_buffer_train = deque(maxlen = self.frame_stack_size)
         self.frame_buffer_test = deque(maxlen= self.frame_stack_size)
@@ -64,7 +64,7 @@ class Agent:
         self.best = 120
         self.seeding = 200
         self.learning_rate = learning_rate
-        self.save_model_step = 1500
+        self.save_model_step = 1700
 
         self.env = enviroment
         self.max_time_steps = enviroment._max_episode_steps
