@@ -16,17 +16,17 @@ from ddqn_common_methods import *
 
 class Agent:
 
-    def __init__(self, enviroment, learning_rate,buffer_size,discount,all_paths,algorithm,training_mode):
+    def __init__(self, enviroment, learning_rate,buffer_size,discount,all_paths,algorithm,training_mode,game_name):
 
         self.algorithm_name = algorithm
+        self.game_name = game_name
         self.frame_stack_size = 4
         self.experience_buffer_size = buffer_size
         self.discount = discount
-        self.epsilon = 0.05
+        self.final_epsilon = 0.1
+        self.epsilon = 0.8
         self.select = 'RMS'
-        self.result_display = 3000
-        self.max_time_steps = 100000
-        self.image_size = 84
+        self.result_display = 2000
         self.reuse_flag = False
 
         self.model_path = all_paths[0]
@@ -37,7 +37,7 @@ class Agent:
 
         self.experience_buffer_episodes = deque(maxlen=self.experience_buffer_size)
         self.episode_lens = np.array([])
-        self.target_network_up_count = 10000
+        self.target_network_up_count = 800
 
         self.frame_buffer_train = deque(maxlen = self.frame_stack_size)
         self.frame_buffer_test = deque(maxlen= self.frame_stack_size)
@@ -46,9 +46,10 @@ class Agent:
         self.best = 120
         self.seeding = 200
         self.learning_rate = learning_rate
-        self.save_model_step = 500
+        self.save_model_step = 1500
 
         self.env = enviroment
+        self.max_time_steps = enviroment._max_episode_steps
         self.state_dims = self.env.observation_space.shape[0]
         self.num_actions = self.env.action_space.shape[0]
         self.steps = 0
@@ -447,6 +448,8 @@ class Agent:
             if training_mode:
 
                 print('------ Training mode underway-----')
+                global_steps = 1000
+                decay_steps = 1000
 
                 for epoch in range(epochs):
 
@@ -475,6 +478,12 @@ class Agent:
                             # Epsilon Greedy strategy exploration (Exploitation vs exploration)
                             if(self.epsilon>rand_number):
                                 action = self.env.action_space.sample()
+
+                            if(self.epsilon > self.final_epsilon):
+                                global_steps += 1
+                                self.epsilon = self.discount ** (global_steps / decay_steps)
+                            else:
+                                self.epsilon = self.final_epsilon
 
                             next_state,reward,done,_ = self.env.step(action)
 
@@ -552,10 +561,10 @@ class Agent:
                     save_path = self.saver.save(sess,self.model_path+'model.ckpt')
                     print('Model saved to: ',save_path)
 
-                plot_data(metric=epoch_rewards_curve, xlabel='Epochs',ylabel='Discounted Return',colour='b',filename=self.plot_path+'rewards_'+self.algorithm_name)
-                plot_data(metric=epoch_episode_length_curve, xlabel='Epochs',ylabel='Episode Length', colour='g', filename=self.plot_path+'episodes_'+self.algorithm_name)
-                plot_data(metric=epoch_scores_curve, xlabel='Epochs',ylabel='Undiscounted Return', colour='m', filename=self.plot_path+'scores_'+self.algorithm_name)
-                plot_data(metric=epoch_loss_curve_training,xlabel='Epochs',ylabel='Loss', colour='r', filename=self.plot_path+'loss_'+self.algorithm_name)
+                plot_data(metric=epoch_rewards_curve, xlabel='Epochs',ylabel='Discounted Return',colour='b',filename=self.plot_path+'rewards_'+self.algorithm_name+'_'+self.game_name)
+                plot_data(metric=epoch_episode_length_curve, xlabel='Epochs',ylabel='Episode Length', colour='g', filename=self.plot_path+'episodes_'+self.algorithm_name+'_'+self.game_name)
+                plot_data(metric=epoch_scores_curve, xlabel='Epochs',ylabel='Undiscounted Return', colour='m', filename=self.plot_path+'scores_'+self.algorithm_name+'_'+self.game_name)
+                plot_data(metric=epoch_loss_curve_training,xlabel='Epochs',ylabel='Loss', colour='r', filename=self.plot_path+'loss_'+self.algorithm_name+'_'+self.game_name)
                 print('---Results Plotted---')
             else:
 

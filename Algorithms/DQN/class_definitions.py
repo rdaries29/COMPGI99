@@ -523,7 +523,7 @@ class Agent:
                             with tf.device("/cpu:0"):
                                 self.saver.save(sess,self.model_path+'model'+str(i)+'.ckpt')
 
-                        if (i % self.target_network_up_count == 0 and i is not 0):
+                        if(i % self.target_network_up_count == 0 and i is not 0):
                             self.update_target_network(sess)
                             print('---Target Network Updated---')
 
