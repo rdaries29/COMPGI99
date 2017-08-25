@@ -34,17 +34,17 @@ def quantize(maximum_index_vector):
 
 class Agent:
 
-    def __init__(self, enviroment, learning_rate,buffer_size,discount,all_paths,algorithm,training_mode):
+    def __init__(self, enviroment, learning_rate,buffer_size,discount,all_paths,algorithm,training_mode,game_name):
 
         self.algorithm_name = algorithm
+        self.game_name = game_name
         self.frame_stack_size = 4
         self.experience_buffer_size = buffer_size
         self.discount = discount
-        self.epsilon = 0.05
+        self.final_epsilon = 0.1
+        self.epsilon = 0.8
         self.select = 'RMS'
-        self.result_display = 3000
-        self.max_time_steps = 100000
-        self.image_size = 84
+        self.result_display = 2000
 
         self.model_path = all_paths[0]
         self.variable_path = all_paths[1]
@@ -54,7 +54,7 @@ class Agent:
 
         self.experience_buffer_episodes = deque(maxlen=self.experience_buffer_size)
         self.episode_lens = np.array([])
-        self.target_network_up_count = 10000
+        self.target_network_up_count = 800
 
         self.frame_buffer_train = deque(maxlen = self.frame_stack_size)
         self.frame_buffer_test = deque(maxlen= self.frame_stack_size)
@@ -63,9 +63,10 @@ class Agent:
         self.best = 120
         self.seeding = 200
         self.learning_rate = learning_rate
-        self.save_model_step = 500
+        self.save_model_step = 1500
 
         self.env = enviroment
+        self.max_time_steps = enviroment._max_episode_steps
         self.state_dims = self.env.observation_space.shape[0]
         self.num_actions = self.env.action_space.shape[0]
         self.steps = 0
@@ -305,7 +306,7 @@ class Agent:
                 loss=self.loss,
                 global_step=global_step,
                 learning_rate=learning_rate_decay,
-                optimizer=tf.train.RMSPropOptimizer(learning_rate=learning_rate_decay),
+                optimizer=tf.train.RMSPropOptimizer(momentum=0.95,learning_rate=learning_rate_decay),
                 clip_gradients=clip_gradients,
                 gradient_noise_scale=gradient_noise_scale
             )
@@ -419,20 +420,21 @@ class Agent:
 
             sess.run(self.init)
 
-            #writer.add_graph(sess.graph)
             iterations = round(self.experience_buffer_size/batch_size)
             count_rendering = 0
             low_score = -50
             epoch_rewards_curve = []
             epoch_episode_length_curve = []
             epoch_scores_curve = []
-            epoch_loss_curve_training = [0.99]
+            epoch_loss_curve_training = []
 
             self.create_experience_replay_buffer(sess)
 
             if training_mode:
 
                 print('------ Training mode underway-----')
+                global_steps = 1000
+                decay_steps = 1000
 
                 for epoch in range(epochs):
 
@@ -461,6 +463,13 @@ class Agent:
                             # Epsilon Greedy strategy exploration (Exploitation vs exploration)
                             if(self.epsilon>rand_number):
                                 action = self.env.action_space.sample()
+
+                            if(self.epsilon > self.final_epsilon):
+                                global_steps += 1
+                                self.epsilon = self.discount ** (global_steps / decay_steps)
+                            else:
+                                self.epsilon = self.final_epsilon
+
 
                             next_state,reward,done,_ = self.env.step(action)
 
@@ -508,7 +517,7 @@ class Agent:
 
                             mean_reward,std_reward, mean_experiment_length,std_experiment_length, mean_score,std_score = self.action_during_training(sess, 10,construct_agent,count_rendering)
                             count_rendering=1
-                            print('Epoch: ' + str(epoch) + ', Iteration Reward:' + str(mean_reward)+ ', Std Reward:' + str(std_reward)+ ', Mean Epi Length:' + str(mean_experiment_length)+ ', Std Epi Length:' + str(std_experiment_length))
+                            print('Epoch: ' + str(epoch) + ', Iteration Reward:' + str(mean_reward)+ ', Std Reward:' + str(std_reward)+ ', Mean Epi Length:' + str(mean_experiment_length)+ ', Std Epi Length:' + str(std_experiment_length)+ ' Loss:' + str(agent_loss))
 
                         if(i % self.save_model_step ==0 and mean_score>low_score):
                             with tf.device("/cpu:0"):
@@ -522,7 +531,7 @@ class Agent:
                     count_rendering = 1
                     print('Epoch: ' + str(epoch) + ', Reward:' + str(epoch_reward) + ', Std Reward:' + str(
                         epoch_std_reward) + ', Epi Length:' + str(epoch_experiment_length) + ', Std Epi Length:' + str(
-                        epoch_std_experiment_length)+', Score: '+str(epoch_score)+',Std Score:'+str(epoch_std_score))
+                        epoch_std_experiment_length)+', Score: '+str(epoch_score)+',Std Score:'+str(epoch_std_score) + ' Loss:' + str(agent_loss))
 
                     epoch_rewards_curve.append(epoch_reward)
                     epoch_episode_length_curve.append(epoch_experiment_length)
@@ -538,10 +547,10 @@ class Agent:
                     save_path = self.saver.save(sess,self.model_path+'model.ckpt')
                     print('Model saved to: ',save_path)
 
-                plot_data(metric=epoch_rewards_curve, xlabel='Epochs',ylabel='Discounted Return',colour='b',filename=self.plot_path+'rewards_'+self.algorithm_name)
-                plot_data(metric=epoch_episode_length_curve, xlabel='Epochs',ylabel='Episode Length', colour='g', filename=self.plot_path+'episodes_'+self.algorithm_name)
-                plot_data(metric=epoch_scores_curve, xlabel='Epochs',ylabel='Undiscounted Return', colour='m', filename=self.plot_path+'scores_'+self.algorithm_name)
-                plot_data(metric=epoch_loss_curve_training,xlabel='Epochs',ylabel='Loss', colour='r', filename=self.plot_path+'loss_'+self.algorithm_name)
+                plot_data(metric=epoch_rewards_curve, xlabel='Epochs',ylabel='Discounted Return',colour='b',filename=self.plot_path+'rewards_'+self.algorithm_name+'_'+self.game_name)
+                plot_data(metric=epoch_episode_length_curve, xlabel='Epochs',ylabel='Episode Length', colour='g', filename=self.plot_path+'episodes_'+self.algorithm_name+'_'+self.game_name)
+                plot_data(metric=epoch_scores_curve, xlabel='Epochs',ylabel='Undiscounted Return', colour='m', filename=self.plot_path+'scores_'+self.algorithm_name+'_'+self.game_name)
+                plot_data(metric=epoch_loss_curve_training,xlabel='Epochs',ylabel='Loss', colour='r', filename=self.plot_path+'loss_'+self.algorithm_name+'_'+self.game_name)
                 print('---Results Plotted---')
             else:
 

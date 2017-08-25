@@ -9,10 +9,10 @@ from common_imports import *
 from class_definitions import *
 from misc_definitions import *
 
-learning_rate = 0.0001
-epochs = 50
-batch_size = 32
-experience_buffer_size = 1000000
+learning_rate = 0.00025
+epochs = 30
+batch_size = 256
+experience_buffer_size = 2000000
 construct_agent = False
 discount = 0.99
 save_path_var = True
@@ -54,7 +54,7 @@ def main(agent):
     env = gym.make(agent)
     print('-------Creating Agent-------')
 
-    agent = Agent(env,learning_rate,experience_buffer_size,discount,all_paths,algorithm,training_mode)
+    agent = Agent(env,learning_rate,experience_buffer_size,discount,all_paths,algorithm,training_mode,game_name)
 
     if training_mode:
         print('-------Training Model-------')
