@@ -45,11 +45,12 @@ tf_path = model_path
 
 all_paths = [model_path,variable_path,plot_path,table_path,video_path]
 
-if(save_path_var):
-    # All paths save directory
-    all_save_path = '../../Models/'+algorithm+'/'+game_name+'/variables'+'/saved_paths.npz'
-    np.savez(all_save_path,model_path=model_path,variable_path=variable_path,plot_path=plot_path,table_path=table_path,video_path=video_path,tf_path=tf_path)
-    print('Variables saved to: '+ all_save_path)
+if(training_mode==True):
+    if(save_path_var):
+        # All paths save directory
+        all_save_path = '../../Models/'+algorithm+'/'+game_name+'/variables'+'/saved_paths.npz'
+        np.savez(all_save_path,model_path=model_path,variable_path=variable_path,plot_path=plot_path,table_path=table_path,video_path=video_path,tf_path=tf_path)
+        print('Variables saved to: '+ all_save_path)
 
 def main(agent):
 

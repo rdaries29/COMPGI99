@@ -10,10 +10,10 @@ from class_definitions import *
 from misc_definitions import *
 
 learning_rate = 0.00025
-epochs = 30
-batch_size = 256
-experience_buffer_size = 1000000
-construct_agent = False
+epochs = 3
+batch_size = 32#256
+experience_buffer_size = 50#1000000
+construct_agent = True
 discount = 0.99
 save_path_var = True
 training_mode = True
@@ -43,16 +43,21 @@ tf_path = model_path
 
 all_paths = [model_path,variable_path,plot_path,table_path,video_path]
 
-if(save_path_var):
-    # All paths save directory
-    all_save_path = '../../Models/'+algorithm+'/'+game_name+'/variables'+'/saved_paths.npz'
-    np.savez(all_save_path,model_path=model_path,variable_path=variable_path,plot_path=plot_path,table_path=table_path,video_path=video_path,tf_path=tf_path)
-    print('Variables saved to: '+ all_save_path)
+if(training_mode==True):
+    if(save_path_var):
+        # All paths save directory
+        all_save_path = '../../Models/'+algorithm+'/'+game_name+'/variables'+'/saved_paths.npz'
+        np.savez(all_save_path,model_path=model_path,variable_path=variable_path,plot_path=plot_path,table_path=table_path,video_path=video_path,tf_path=tf_path)
+        print('Variables saved to: '+ all_save_path)
 
 def main(agent):
 
     env = gym.make(agent)
     print('-------Creating Agent-------')
+    print(env.action_space)
+    print(env.observation_space)
+    print(env.action_space.high)
+    print(env.action_space.low)
 
     agent = Agent(env,learning_rate,experience_buffer_size,discount,all_paths,algorithm,training_mode,game_name)
 

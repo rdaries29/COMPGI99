@@ -19,7 +19,7 @@ from common_methods import *
 def discretize_actions(output_nodes_vec):
 
     maximum_indices = tf.argmax(output_nodes_vec,axis=2)
-    action_matrix= quantize(maximum_indices)
+    action_matrix = quantize(maximum_indices)
 
     maximum_values = tf.reduce_max(output_nodes_vec,axis=2)
     maximum_values = tf.reduce_sum(maximum_values,axis=1)
@@ -55,7 +55,7 @@ class Agent:
 
         self.experience_buffer_episodes = deque(maxlen=self.experience_buffer_size)
         self.episode_lens = np.array([])
-        self.target_network_up_count = 1000
+        self.target_network_up_count = 1900
 
         self.frame_buffer_train = deque(maxlen = self.frame_stack_size)
         self.frame_buffer_test = deque(maxlen= self.frame_stack_size)
@@ -71,7 +71,7 @@ class Agent:
         self.state_dims = self.env.observation_space.shape[0]
         self.num_actions = self.env.action_space.shape[0]
         self.steps = 0
-        self.alpha = 0.04
+        self.alpha = 0.06
         self.discrete_levels = 5
         self.build_dqn()
         self.training_mode = training_mode
@@ -235,7 +235,7 @@ class Agent:
                 next_state = self.compile_frames_train()
 
                 if(done):
-                    next_state = np.zeros((self.frame_stack_size,int(self.num_actions*self.discrete_levels)))
+                    next_state = np.zeros((self.frame_stack_size,self.state_dims))
                 else:
                     pass
 
@@ -344,23 +344,22 @@ class Agent:
     def create_q_network(self,num_actions,state_dims):
 
         input_layer = tf.reshape(state_dims,[-1,self.state_dims,self.frame_stack_size,1])
-        # input_layer = tf.expand_dims(input_layer,dim=3)
 
         # 3 Convolutional Layers as specified in Mnih DQN paper
         # 32 20x20 feature map
-        conv_layer_1 = tf.layers.conv2d(inputs=input_layer,kernel_size=[4,2],padding='valid',filters=32,strides=(1,1),activation=tf.nn.relu)
+        conv_layer_1 = tf.layers.batch_normalization(tf.layers.conv2d(inputs=input_layer,kernel_size=[4,2],padding='valid',filters=32,strides=(1,1),activation=tf.nn.relu))
 
         # 64 9x9 feature map
-        conv_layer_2 = tf.layers.conv2d(inputs=conv_layer_1,kernel_size=[3,2],padding='valid',filters=64,strides=(1,1),activation=tf.nn.relu)
+        conv_layer_2 = tf.layers.batch_normalization(tf.layers.conv2d(inputs=conv_layer_1,kernel_size=[3,2],padding='valid',filters=64,strides=(1,1),activation=tf.nn.relu))
 
         # 64 7x7 feature map
-        conv_layer_3 = tf.layers.conv2d(inputs=conv_layer_2, kernel_size=2, padding='valid', filters=64, strides=(1,1),activation=tf.nn.relu)
+        conv_layer_3 = tf.layers.batch_normalization(tf.layers.conv2d(inputs=conv_layer_2, kernel_size=2, padding='valid', filters=64, strides=(1,1),activation=tf.nn.relu))
 
-        conv_2d_flatten = tf.reshape(conv_layer_3,[-1,9 * 1 * 64])
+        conv_2d_flatten = tf.contrib.layers.flatten(conv_layer_3)
 
-        fully_connected = tf.layers.dense(inputs=conv_2d_flatten,units=512,activation=tf.nn.relu)
+        fully_connected = tf.layers.batch_normalization(tf.layers.dense(inputs=conv_2d_flatten,units=512,activation=tf.nn.relu))
 
-        Q = tf.layers.dense(inputs=fully_connected,units=num_actions*self.discrete_levels)
+        Q = tf.layers.batch_normalization(tf.layers.dense(inputs=fully_connected,units=num_actions*self.discrete_levels))
 
         return Q
 
@@ -429,13 +428,11 @@ class Agent:
             epoch_scores_curve = []
             epoch_loss_curve_training = []
 
-            self.create_experience_replay_buffer(sess)
-
             if training_mode:
 
+                self.create_experience_replay_buffer(sess)
+
                 print('------ Training mode underway-----')
-                global_steps = 1000
-                decay_steps = 1000
 
                 for epoch in range(epochs):
 
@@ -482,7 +479,7 @@ class Agent:
                             next_state = self.compile_frames_train()
 
                             if(done):
-                                next_state = np.zeros((self.frame_stack_size,int(self.num_actions*self.discrete_levels)))
+                                next_state = np.zeros((self.frame_stack_size,self.state_dims))
                             else:
                                 pass
 
@@ -499,7 +496,7 @@ class Agent:
                             done_flags_values = (~np.array(done_flags))*1
 
                             temp_batch_states = np.reshape(batch_states,(batch_size,-1))
-                            temp_next_states = np.reshape(next_states,(batch_size,-1))
+                            temp_next_states  = np.reshape(next_states,(batch_size,-1))
 
                             next_actions, _ = self.q_prediction_target(sess,temp_next_states)
 
@@ -541,8 +538,6 @@ class Agent:
                     np.savez(self.variable_path+'/saved_curves.npz', epoch_rewards_saved=epoch_rewards_curve, epoch_episode_length_saved=epoch_episode_length_curve, epoch_scores_saved=epoch_scores_curve,
                              epoch_loss_curve_saved=epoch_loss_curve_training)
 
-                    # print(self.variable_path+'saved_curves.npz')
-
                 with tf.device("/cpu:0"):
                     save_path = self.saver.save(sess,self.model_path+'model.ckpt')
                     print('Model saved to: ',save_path)
@@ -557,6 +552,7 @@ class Agent:
                 print('------ Testing Mode underway-----')
 
                 self.saver.restore(sess,self.model_path+'model.ckpt')
+                print('Retrieving model from:'+self.model_path+'model.ckpt')
                 num_parameters = self.count_parameters(sess)
                 mean_reward, std_reward, mean_experiment_length, std_experiment_length, mean_score, std_score = self.action(sess, 10,
                                                                                                             construct_agent,record_videos)
