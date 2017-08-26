@@ -10,10 +10,10 @@ from class_definitions import *
 from misc_definitions import *
 
 learning_rate = 0.00025
-epochs = 3
-batch_size = 32#256
-experience_buffer_size = 50#1000000
-construct_agent = True
+epochs = 30
+batch_size = 256
+experience_buffer_size = 1000000
+construct_agent = False
 discount = 0.99
 save_path_var = True
 training_mode = True
