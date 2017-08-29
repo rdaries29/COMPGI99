@@ -7,19 +7,19 @@ import gym
 import roboschool
 import numpy as np
 from collections import deque
-
+from gym import wrappers
 
 from misc_definitions import *
 
 class game_state(object):
 
-    def __init__(self,game_name,rand_seed,construct_agent):
+    def __init__(self,game_name,rand_seed,construct_agent,thread_index,all_paths,training_mode,count_rendering):
 
         self.game_name = game_name
         self.frame_stack_size = 4
         self.frame_buffer_train = deque(maxlen = self.frame_stack_size)
         self.frame_buffer_test = deque(maxlen= self.frame_stack_size)
-
+        self.video_path = all_paths[4]
         self.render_agent = construct_agent
         self.seeding = rand_seed
 
@@ -29,6 +29,11 @@ class game_state(object):
 
         self.env = gym.make(self.environment_name)
 
+        if(count_rendering):
+            if(thread_index==-1):
+                self.env = wrappers.Monitor(self.env, self.video_path, video_callable=None, force=True)
+            else:
+                pass
         if(self.render_agent):
             self.env.render()
         else:

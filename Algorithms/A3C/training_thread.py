@@ -14,12 +14,12 @@ from misc_definitions import *
 from ac_network import lstm_ac_network
 from game_state import game_state
 
-LOG_INTERVAL = 100
+LOG_INTERVAL = 1000
 PERFORMANCE_LOG_INTERVAL = 1000
 
 class worker_training_thread(object):
 
-    def __init__(self,thread_index,master_network,initial_learning_rate,grad_applier,max_time_step_env,action_size,observation_size,game_name,device):
+    def __init__(self,thread_index,master_network,initial_learning_rate,grad_applier,max_time_step_env,action_size,observation_size,game_name,all_paths,epoch_size,training_mode,device):
 
         self.thread_index = thread_index
         self.learning_rate = tf.placeholder(dtype = tf.float32)
@@ -31,14 +31,11 @@ class worker_training_thread(object):
         self.discount = 0.99
         self.game_name = game_name
         self.rand_seeding = 200
-        # if(self.thread_index==0):
-        #     self.construct_agent = True
-        # else:
-        #     self.construct_agent = False
+        self.epoch_size = epoch_size
         self.construct_agent = False
         self.max_global_time_step = max_time_step_env
 
-        self.local_network = lstm_ac_network(action_size,observation_size,thread_index,device)
+        self.local_network = lstm_ac_network(action_size,observation_size,thread_index,all_paths,device)
         self.local_network.prepare_loss(self.entropy_beta)
 
         with tf.device(device):
@@ -48,13 +45,17 @@ class worker_training_thread(object):
         self.apply_gradients = grad_applier.apply_gradients(master_network.get_vars(),self.gradients)
 
         self.sync = self.local_network.sync_from(master_network)
-        self.game_state = game_state(self.game_name,self.rand_seeding,self.construct_agent)
+        self.game_state = game_state(self.game_name,self.rand_seeding,self.construct_agent,self.thread_index,all_paths,training_mode,False)
         self.local_t = 0
         self.initial_learning_rate = initial_learning_rate
 
         self.episode_reward_undiscounted = 0
         self.episode_reward_discounted = 0
         self.prev_local_t = 0
+        self.epoch_reward_discounted = []
+        self.epoch_reward_undiscounted = []
+        self.epoch_episode_length = []
+        self.epoch_loss = []
 
     def _anneal_learning_rate(self, global_time_step):
         learning_rate = self.initial_learning_rate * (self.max_global_time_step - global_time_step) / self.max_global_time_step
@@ -65,15 +66,10 @@ class worker_training_thread(object):
     def choose_action(self, pi_values):
         return np.random.choice(range(len(pi_values)), p=pi_values)
 
-    def _record_score(self, sess, summary_writer, summary_op, score_input, score, global_t):
-        summary_str = sess.run(summary_op, feed_dict={score_input: score})
-        summary_writer.add_summary(summary_str, global_t)
-        summary_writer.flush()
-
     def set_start_time(self, start_time):
         self.start_time = start_time
 
-    def process(self, sess, global_t, summary_writer, summary_op, score_input):
+    def process(self, sess, global_t):
 
         states = []
         actions = []
@@ -81,7 +77,7 @@ class worker_training_thread(object):
         rewards_discounted = []
         values = []
         episode_steps = []
-
+        epoch_complete = False
         done = False
 
         # copy weights from shared to local
@@ -101,11 +97,6 @@ class worker_training_thread(object):
             states.append(np.reshape(self.game_state.s_t,(1,-1)))
             actions.append(action_vector)
             values.append(value_)
-
-            if (self.thread_index == 0) and (self.local_t % LOG_INTERVAL == 0):
-                print("pi={}".format(pi_))
-                print(" V={}".format(value_))
-
 
             # process game
             next_state,reward,done,_ = self.game_state.env.step(action_vector)
@@ -128,6 +119,12 @@ class worker_training_thread(object):
             rewards_discounted.append(self.episode_reward_discounted)
             episode_steps.append(i+1)
 
+            if(self.local_t%self.epoch_size==0 and self.thread_index==0):
+                td_index = i
+                epoch_complete=True
+            else:
+                pass
+
             self.local_t += 1
 
             # s_t1 -> s_t
@@ -135,12 +132,12 @@ class worker_training_thread(object):
 
             if terminal:
                 terminal_end = True
-                print("score_undiscounted={}".format(self.episode_reward_undiscounted))
-                print("score_discounted={}".format(self.episode_reward_discounted))
-                print("episode_length={}".format(i+1))
 
-                self._record_score(sess, summary_writer, summary_op, score_input,
-                                   self.episode_reward_undiscounted, global_t)
+                if(epoch_complete):
+                    self.epoch_reward_undiscounted.append(self.episode_reward_undiscounted)
+                    self.epoch_reward_discounted.append(self.episode_reward_discounted)
+                    self.epoch_episode_length.append(i + 1)
+                    print("Epoch :" + str(int(self.local_t/self.epoch_size))+" Undiscounted: "+str(self.episode_reward_undiscounted) + ", Discounted: "+str(self.episode_reward_discounted)+", Epi Length: "+str(i+1))
 
                 self.episode_reward_undiscounted = 0
                 self.epsiode_reward_discounted = 0
@@ -168,7 +165,6 @@ class worker_training_thread(object):
             R = ri + (self.discount * R)
             td = R - Vi
             a = ai
-            # a[ai] = 1
             si = np.squeeze(si,axis=0)
 
             batch_si.append(si)
@@ -177,13 +173,17 @@ class worker_training_thread(object):
             batch_R.append(R)
 
         cur_learning_rate = self._anneal_learning_rate(global_t)
+        if(epoch_complete and self.thread_index==0):
+            self.epoch_loss.append(batch_td[td_index])
+            # print("Loss: "+str(batch_td[td_index]))
+        else:
+            pass
 
         batch_si.reverse()
         batch_a.reverse()
         batch_td.reverse()
         batch_R.reverse()
 
-        print("------Applying gradients------")
         sess.run(self.apply_gradients,
                  feed_dict={
                      self.local_network.state_arrays: batch_si,
@@ -194,7 +194,6 @@ class worker_training_thread(object):
                      self.local_network.step_size: [len(batch_a)],
                      self.learning_rate:cur_learning_rate})
 
-        print("------Finishing applying gradients-----")
         if (self.thread_index == 0) and (self.local_t - self.prev_local_t >= PERFORMANCE_LOG_INTERVAL):
             self.prev_local_t += PERFORMANCE_LOG_INTERVAL
             elapsed_time = time.time() - self.start_time
@@ -204,5 +203,5 @@ class worker_training_thread(object):
 
         # return advanced local step size
         diff_local_t = self.local_t - start_local_t
-        return diff_local_t
+        return diff_local_t,self.epoch_reward_discounted,self.epoch_reward_undiscounted,self.epoch_episode_length,self.epoch_loss
 
