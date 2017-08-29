@@ -31,7 +31,7 @@ else:
     device = "/cpu:0"
 
 global_t = 0
-learning_rate = 0.00025
+learning_rate = 0.0001
 epoch_size = 10**6
 max_time_step_env = 30*epoch_size
 construct_agent = False
