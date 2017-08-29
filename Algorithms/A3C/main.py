@@ -23,7 +23,7 @@ from ac_network import lstm_ac_network
 from training_thread import worker_training_thread
 from rmsprop_applier import RMSPropApplier
 
-USE_GPU = False
+USE_GPU = True
 
 if USE_GPU:
     device = "/gpu:0"
@@ -40,7 +40,7 @@ wall_t = 0.0
 rand_seeding = 200
 save_path_var = True
 training_mode = True
-record_test_videos = True
+record_test_videos = False
 stop_requested = False
 
 # Problem Number
