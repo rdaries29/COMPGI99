@@ -2,9 +2,40 @@
 # Institution: University College London
 # Developer: Russel Daries (16079408)
 
-
+import numpy as np
 import tensorflow as tf
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
+
+def limit_return(reward):
+    if reward > 1:
+        return 1
+    elif reward < -1:
+        return -1
+    elif reward < 1 and reward > -1:
+        return reward
+    else:
+        return 0
+
+def results(results_vector):
+
+    mean_result = np.mean(results_vector)
+    std_result = np.std(results_vector)
+
+    return mean_result, std_result
+
+# Plotting function for data metrics
+def plot_data(metric, xlabel, ylabel,colour,filename):
+
+    plt.plot(metric, colour, lw=2)
+    plt.grid(True)
+    plt.xlabel(xlabel, fontsize=12)
+    plt.ylabel(ylabel, fontsize=12)
+    # plt.title(title, fontsize=22)
+    plt.savefig(filename+ '_metrics.pdf', bbox_inches='tight', format='pdf', dpi=50)
+    plt.close()
 
 # Copies one set of variables to another.
 # Used to set worker network parameters to those of global network.
