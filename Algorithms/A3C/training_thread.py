@@ -198,8 +198,8 @@ class worker_training_thread(object):
             self.prev_local_t += PERFORMANCE_LOG_INTERVAL
             elapsed_time = time.time() - self.start_time
             steps_per_sec = global_t / elapsed_time
-            print("### Performance : {} STEPS in {:.0f} sec. {:.0f} STEPS/sec. {:.2f}M STEPS/hour".format(
-                global_t, elapsed_time, steps_per_sec, steps_per_sec * 3600 / 1000000.))
+            # print("### Performance : {} STEPS in {:.0f} sec. {:.0f} STEPS/sec. {:.2f}M STEPS/hour".format(
+            #     global_t, elapsed_time, steps_per_sec, steps_per_sec * 3600 / 1000000.))
 
         # return advanced local step size
         diff_local_t = self.local_t - start_local_t

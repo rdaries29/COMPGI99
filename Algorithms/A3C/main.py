@@ -169,12 +169,6 @@ if(training_mode==True):
         save_path = saver.save(sess, model_path + 'model.ckpt')
         print('Model saved to: ', save_path)
 
-    num_parameters = master_network.count_parameters(sess)
-    mean_reward, std_reward, mean_experiment_length, std_experiment_length, mean_score, std_score = master_network.process_test(sess, 100,game_name,rand_seeding,construct_agent,all_paths,training_mode,record_test_videos)
-    print('Mean Reward:' + str(mean_reward) + ', Std Reward:' + str(
-            std_reward) + ', Mean Epi Length:' + str(mean_experiment_length) + ', Std Epi Length:' + str(
-            std_experiment_length))
-
 else:
 
     print('------ Testing Mode underway-----')
