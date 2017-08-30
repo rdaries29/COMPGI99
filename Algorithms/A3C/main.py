@@ -23,7 +23,7 @@ from ac_network import lstm_ac_network
 from training_thread import worker_training_thread
 from rmsprop_applier import RMSPropApplier
 
-USE_GPU = True
+USE_GPU = False
 
 if USE_GPU:
     device = "/gpu:0"
@@ -32,8 +32,11 @@ else:
 
 global_t = 0
 learning_rate = 0.0001
-epoch_size = 10**6
-max_time_step_env = 30*epoch_size
+number_epochs = 30
+epoch_size = 10**5
+max_time_step_env = number_epochs*epoch_size
+thread_sample_steps = round(max_time_step_env/multiprocessing.cpu_count())
+thread_sample_time = round(thread_sample_steps/number_epochs)
 construct_agent = False
 discount = 0.99
 wall_t = 0.0
@@ -116,6 +119,7 @@ if(training_mode==True):
         # set start_time
         start_time = time.time() - wall_t
         training_thread.set_start_time(start_time)
+        epoch_counter = 0
 
         while True:
             if stop_requested:
@@ -137,7 +141,7 @@ if(training_mode==True):
 
                 break
 
-            diff_global_t,reward_discounted,reward_undiscounted,episode_length,loss= training_thread.process(sess, global_t)
+            diff_global_t,epoch_counter,reward_discounted,reward_undiscounted,episode_length,loss= training_thread.process(sess, global_t,thread_sample_time,epoch_counter)
             global_t += diff_global_t
 
     def signal_handler(signal, frame):
@@ -159,8 +163,6 @@ if(training_mode==True):
 
     print('Press Ctrl+C to stop')
     # signal.pause()
-
-    print('Now saving data. Please wait')
 
     for t in train_threads:
         t.join()

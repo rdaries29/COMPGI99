@@ -69,7 +69,7 @@ class worker_training_thread(object):
     def set_start_time(self, start_time):
         self.start_time = start_time
 
-    def process(self, sess, global_t):
+    def process(self, sess, global_t,thread_sample_time,epoch_counter):
 
         states = []
         actions = []
@@ -119,7 +119,12 @@ class worker_training_thread(object):
             rewards_discounted.append(self.episode_reward_discounted)
             episode_steps.append(i+1)
 
-            if(self.local_t%self.epoch_size==0 and self.thread_index==0):
+            if(self.local_t%thread_sample_time==0 and self.thread_index==0):
+                self.epoch_reward_undiscounted.append(self.episode_reward_undiscounted)
+                self.epoch_reward_discounted.append(self.episode_reward_discounted)
+                self.epoch_episode_length.append(i + 1)
+                print("Epoch :" + str(epoch_counter) + " Undiscounted: " + str( self.episode_reward_undiscounted) + ", Discounted: " + str(self.episode_reward_discounted) + ", Epi Length: " + str(i + 1))
+                epoch_counter+=1
                 td_index = i
                 epoch_complete=True
             else:
@@ -132,12 +137,6 @@ class worker_training_thread(object):
 
             if terminal:
                 terminal_end = True
-
-                if(epoch_complete):
-                    self.epoch_reward_undiscounted.append(self.episode_reward_undiscounted)
-                    self.epoch_reward_discounted.append(self.episode_reward_discounted)
-                    self.epoch_episode_length.append(i + 1)
-                    print("Epoch :" + str(int(self.local_t/self.epoch_size))+" Undiscounted: "+str(self.episode_reward_undiscounted) + ", Discounted: "+str(self.episode_reward_discounted)+", Epi Length: "+str(i+1))
 
                 self.episode_reward_undiscounted = 0
                 self.epsiode_reward_discounted = 0
@@ -175,7 +174,6 @@ class worker_training_thread(object):
         cur_learning_rate = self._anneal_learning_rate(global_t)
         if(epoch_complete and self.thread_index==0):
             self.epoch_loss.append(batch_td[td_index])
-            # print("Loss: "+str(batch_td[td_index]))
         else:
             pass
 
@@ -198,10 +196,8 @@ class worker_training_thread(object):
             self.prev_local_t += PERFORMANCE_LOG_INTERVAL
             elapsed_time = time.time() - self.start_time
             steps_per_sec = global_t / elapsed_time
-            # print("### Performance : {} STEPS in {:.0f} sec. {:.0f} STEPS/sec. {:.2f}M STEPS/hour".format(
-            #     global_t, elapsed_time, steps_per_sec, steps_per_sec * 3600 / 1000000.))
 
         # return advanced local step size
         diff_local_t = self.local_t - start_local_t
-        return diff_local_t,self.epoch_reward_discounted,self.epoch_reward_undiscounted,self.epoch_episode_length,self.epoch_loss
+        return diff_local_t,epoch_counter,self.epoch_reward_discounted,self.epoch_reward_undiscounted,self.epoch_episode_length,self.epoch_loss
 
