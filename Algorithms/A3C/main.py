@@ -2,6 +2,7 @@
 # Institution: University College London
 # Developer: Russel Daries (16079408)
 
+# Import required libraries and packages
 import tensorflow as tf
 import roboschool
 import pandas as pd
@@ -23,12 +24,15 @@ from ac_network import lstm_ac_network
 from training_thread import worker_training_thread
 from rmsprop_applier import RMSPropApplier
 
+# Flag for use of GPU or CPU
 USE_GPU = False
 
 if USE_GPU:
     device = "/gpu:0"
 else:
     device = "/cpu:0"
+
+# Algorithm parameters
 
 global_t = 0
 learning_rate = 0.0001
@@ -42,14 +46,14 @@ discount = 0.99
 wall_t = 0.0
 rand_seeding = 200
 save_path_var = True
-training_mode = True
+training_mode = False
 record_test_videos = False
 stop_requested = False
 
 # Problem Number
 algorithm = 'A3C'
 
-# Game
+# Game Selection
 games = ['hopper','walker','humanoid','humanoidflag']
 games_dict = {'hopper':env_hop,'walker':env_walk,'humanoid':env_human,'humanoidflag':env_human_flag}
 game_name = games[0]
@@ -97,10 +101,12 @@ if(training_mode==True):
         print('Using CPU')
         num_workers = multiprocessing.cpu_count()
 
-    grad_applier = RMSPropApplier(learning_rate = learning_rate,decay = 0.99,momentum = 0.0,epsilon = 0.1,clip_norm = 40.0,device = device)
+    # Gradient applier cited from Kosuke Miyoshi
+    grad_applier = RMSPropApplier(learning_rate = learning_rate,decay = 0.99,momentum = 0.0,epsilon = 0.1,clip_norm = 20.0,device = device)
 
     worker_threads = []
 
+    # Initialize thread neural network models
     for i in range(num_workers):
         training_thread = worker_training_thread(i,master_network,learning_rate,grad_applier,max_time_step_env,action_size,observation_size,game_name,all_paths,epoch_size,training_mode,device)
         worker_threads.append(training_thread)
@@ -111,6 +117,7 @@ if(training_mode==True):
     sess.run(init)
     saver = tf.train.Saver()
 
+    # Training function for each thread
     def train_function(num_workers):
 
         global global_t
@@ -126,6 +133,7 @@ if(training_mode==True):
                 break
             if global_t > max_time_step_env:
                 if(num_workers==0):
+                    # Plot training curves upon completion of training
                     np.savez(variable_path + '/saved_curves.npz', epoch_rewards_saved=reward_discounted,
                              epoch_episode_length_saved=episode_length, epoch_scores_saved=reward_undiscounted,
                              epoch_loss_curve_saved=loss)
@@ -144,13 +152,14 @@ if(training_mode==True):
             diff_global_t,epoch_counter,reward_discounted,reward_undiscounted,episode_length,loss= training_thread.process(sess, global_t,thread_sample_time,epoch_counter)
             global_t += diff_global_t
 
+    # Function for handling interrupt to training sequence
     def signal_handler(signal, frame):
         global stop_requested
-        print('You pressed Ctrl+C!')
         stop_requested = True
 
 
     train_threads = []
+    # Append training function to each thread
     for i in range(num_workers):
         train_threads.append(threading.Thread(target=train_function, args=(i,)))
 
@@ -161,12 +170,10 @@ if(training_mode==True):
     for t in train_threads:
         t.start()
 
-    print('Press Ctrl+C to stop')
-    # signal.pause()
-
     for t in train_threads:
         t.join()
 
+    # Save the model with CPU setting for testing later
     with tf.device("/cpu:0"):
         save_path = saver.save(sess, model_path + 'model.ckpt')
         print('Model saved to: ', save_path)

@@ -12,14 +12,23 @@ from memory_profiler import profile
 class base_ac_network(object):
 
     def __init__(self,action_space,observation_space,thread_index,device = "/cpu:0"):
+        '''Base Actor-Critic Network Class
 
+        Args:
+            action_space: Size of action state-space in environment
+            observation_space: Size of oberservation state-space in environment
+            thread_index: Count of thread current in use
+            device: Device being used ("/cpu:0" or "/gpu:0")
+        '''
         self.num_actions = action_space
         self.thread_index = thread_index
         self._device = device
         self._observation_space = observation_space
 
     def prepare_loss(self, entropy_beta):
+        # Adapted from Kosuke Miyoshi repo
         with tf.device(self._device):
+
             # taken action (input for policy)
             self.a = tf.placeholder(dtype=tf.float32, shape = [None, self.num_actions])
 
@@ -39,12 +48,12 @@ class base_ac_network(object):
             self.r = tf.placeholder(dtype=tf.float32, shape = [None,])
 
             # value loss (output)
-            # (Learning rate for Critic is half of Actor's, so multiply by 0.5)
             value_loss = 0.5 * tf.nn.l2_loss(self.r - self.value)
 
             # gradienet of policy and value are summed up
             self.total_loss = policy_loss + value_loss
 
+    '''Functions not implemented but raise flag'''
     def predict_value(self,x):
         raise NotImplementedError()
 
@@ -57,8 +66,13 @@ class base_ac_network(object):
     def get_vars(self):
         raise NotImplementedError()
 
-    def sync_from(self,src_network, name = None):
 
+    def sync_from(self,src_network, name = None):
+        '''Function to take master network and copy tunable parameters to local network
+
+        Agrs:
+            src_network: Source Neural Network
+        '''
         src_vars = src_network.get_vars()
         dst_vars = self.get_vars()
 
@@ -74,6 +88,7 @@ class base_ac_network(object):
                 return tf.group(*sync_ops,name=name)
 
     def _fc_variable(self, weight_shape):
+        '''Function for fully connected layer (Not required because TF 1.3 has dense function)'''
         input_channels = weight_shape[0]
         output_channels = weight_shape[1]
         d = 1.0 / np.sqrt(input_channels)
@@ -83,6 +98,7 @@ class base_ac_network(object):
         return weight, bias
 
     def _conv_variable(self, weight_shape):
+        '''Function for convolutional layer (Not required because TF 1.3 has conv2d function)'''
         w = weight_shape[0]
         h = weight_shape[1]
         input_channels = weight_shape[2]
@@ -100,7 +116,14 @@ class base_ac_network(object):
 class lstm_ac_network(base_ac_network):
 
     def __init__(self,action_space,observation_space,thread_index,all_paths,device = "/cpu:0"):
+        '''LSTM Actor-Critic Network Class
 
+        Args:
+            action_space: Size of action state-space in environment
+            observation_space: Size of oberservation state-space in environment
+            thread_index: Count of thread current in use
+            device: Device being used ("/cpu:0" or "/gpu:0")
+        '''
         base_ac_network.__init__(self,action_space,observation_space,thread_index,device)
 
         scope_name = "network_" + str(self.thread_index) + "_thread"
@@ -116,14 +139,13 @@ class lstm_ac_network(base_ac_network):
             self.state_arrays = tf.placeholder(shape=[None, self.state_dims * self.frame_stack_size], dtype=tf.float32)
             input_layer = tf.reshape(self.state_arrays, [-1, self.state_dims, self.frame_stack_size, 1])
 
-            # 3 Convolutional Layers as specified in Mnih DQN paper
-            # 32 20x20 feature map
+            # Conv Layer 1
             conv_layer_1 = tf.layers.batch_normalization(tf.layers.conv2d(inputs=input_layer, kernel_size=[4, 2], padding='valid', filters=32, strides=(1, 1),activation=tf.nn.relu))
 
-            # 64 9x9 feature map
+            # Conv Layer 2
             conv_layer_2 = tf.layers.batch_normalization(tf.layers.conv2d(inputs=conv_layer_1, kernel_size=[3, 2], padding='valid', filters=64, strides=(1, 1),activation=tf.nn.relu))
 
-            # 64 7x7 feature map
+            # Conv Layer 3
             conv_layer_3 = tf.layers.batch_normalization(tf.layers.conv2d(inputs=conv_layer_2, kernel_size=2, padding='valid', filters=64, strides=(1, 1),activation=tf.nn.relu))
 
             conv_2d_flatten = tf.contrib.layers.flatten(conv_layer_3)
@@ -142,6 +164,7 @@ class lstm_ac_network(base_ac_network):
             self.initial_lstm_state = tf.contrib.rnn.LSTMStateTuple(self.initial_lstm_state0,
                                                                     self.initial_lstm_state1)
 
+            # Adapted from Kosuke Miyoshi https://github.com/miyosuda
             # Unrolling LSTM up to LOCAL_T_MAX time steps. (= 5time steps.)
             # When episode terminates unrolling time steps becomes less than LOCAL_TIME_STEP.
             # Unrolling step size is applied via self.step_size placeholder.
@@ -163,13 +186,16 @@ class lstm_ac_network(base_ac_network):
             self.reset_state()
 
     def reset_state(self):
+        '''Function to reset LSTM states with zeros'''
         self.lstm_state_out = tf.contrib.rnn.LSTMStateTuple(np.zeros([1,self.lstm_cell_size]),np.zeros([1,self.lstm_cell_size]))
 
-
-    # prediction for value network
-
     def predict_value(self,sess,x):
+        '''Function for prediction of value network
 
+        Args:
+            sess: Tensorflow session
+            x: Current environment state array
+        '''
         prev_lstm_state_out = self.lstm_state_out
 
         prediction = sess.run(self.value, feed_dict = {self.state_arrays: x,
@@ -181,6 +207,12 @@ class lstm_ac_network(base_ac_network):
 
     # prediction for policy network
     def predict_policy(self,sess,x):
+        '''Function for prediction of policy network
+
+        Args:
+            sess: Tensorflow session
+            x: Current environment state array
+        '''
         prediction,self.lstm_state_out = sess.run([self.policy,self.lstm_state],
                                                        feed_dict = {self.state_arrays: x,
                                                                     self.initial_lstm_state0: self.lstm_state_out[0],
@@ -188,13 +220,16 @@ class lstm_ac_network(base_ac_network):
                                                                      self.step_size:[1]})
         return prediction[0]
 
-    # function for single prediction
     def predict_single(self, x):
         return self.predict_p(x[None, :])[0]
 
-    # prediction for p & v network
     def predict_policy_and_value(self,sess,x):
+        '''Function for prediction of value and  policy network
 
+        Args:
+            sess: Tensorflow session
+            x: Current environment state array
+        '''
         policy_out,value_out = sess.run([self.policy,self.value],
                              feed_dict = {self.state_arrays: x,
                                           self.initial_lstm_state0: self.lstm_state_out[0],
@@ -206,17 +241,32 @@ class lstm_ac_network(base_ac_network):
 
 
     def get_vars(self):
-
+        '''Function to obtain all trainable parameters from graph'''
         tempt_var = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=self.scope_name)
 
         return tempt_var
 
     def choose_action_test(self, pi_values):
+        '''Seleciton of action based on policy ouput distribution'''
         return np.random.choice(range(len(pi_values)), p=pi_values)
 
     @profile
     def process_test(self, sess,experiments,game_name,rand_seeding,construct_agent,all_paths,training_mode,count_rendering):
+        '''Function to test agent
 
+        Args:
+            sess: Tensorflow session
+            experiments: Number of episodes to test over
+            rand_seeding: Random seeding for random functions
+            construct_agent: Render test environment for display
+            all_paths: Dictionary with all directories to read and write from
+            training_mode: Boolean for training for test mode
+            count_rendering: Boolean for recording test videos
+        Out:
+            all_rewards: Mean Discounted Return
+            all_scores: Mean Undiscounted return
+            episode_steps: Mean Length of episodes
+        '''
         thread_index = -1
         done = False
 
@@ -254,7 +304,7 @@ class lstm_ac_network(base_ac_network):
                 episode_reward_undiscounted += limited_reward
                 episode_reward_discounted += (limited_reward * discount ** i)
 
-                # s_t1 -> s_t
+                # Update current game state to next game state
                 game.update()
 
                 if done:

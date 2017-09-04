@@ -2,6 +2,7 @@
 # Institution: University College London
 # Developer: Russel Daries (16079408)
 
+# Import required libraries and packages
 import gym
 import roboschool
 import sys
@@ -11,20 +12,20 @@ from ddqn_common_methods import *
 from class_definitions import *
 from misc_definitions import *
 
-learning_rate = 0.00025
+learning_rate = 0.0001
 epochs = 30
 batch_size = 256
 experience_buffer_size = 1000000
 construct_agent = False
 discount = 0.99
 save_path_var = True
-training_mode = True
+training_mode = False
 record_test_videos = False
 
 # Problem Number
 algorithm = 'DDQN'
 
-# Game
+# Game Selection
 games = ['hopper','walker','humanoid','humanoidflag']
 games_dict = {'hopper':env_hop,'walker':env_walk,'humanoid':env_human,'humanoidflag':env_human_flag}
 game_name = games[0]

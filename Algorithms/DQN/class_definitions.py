@@ -17,6 +17,7 @@ from common_methods import *
 
 
 def discretize_actions(output_nodes_vec):
+    '''Function to map output node index (output_nodes_vec) to quantized action vector for continious control '''
 
     maximum_indices = tf.argmax(output_nodes_vec,axis=2)
     action_matrix = quantize(maximum_indices)
@@ -27,7 +28,7 @@ def discretize_actions(output_nodes_vec):
     return action_matrix,maximum_values
 
 def quantize(maximum_index_vector):
-
+    '''Apply map function for discretization of selected nodes'''
     out_tensor = tf.map_fn(lambda x: (0.5*x)-1,tf.cast(maximum_index_vector,dtype=tf.float32))
 
     return out_tensor
@@ -35,6 +36,7 @@ def quantize(maximum_index_vector):
 class Agent:
 
     def __init__(self, enviroment, learning_rate,buffer_size,discount,all_paths,algorithm,training_mode,game_name):
+        ''''Agent class for RL agent creation'''
 
         self.algorithm_name = algorithm
         self.game_name = game_name
@@ -78,11 +80,23 @@ class Agent:
 
 
     def action_during_training(self,sess,experiments,construct_agent,count_rendering):
+        '''Function to test agent performance during training
 
+        Args:
+            sess: Tensorflow session
+            experiments: Number of episodes to execute
+            construct_agent: Render the environment for display (True/False)
+            count_rendering: Initialization for wrapper for recording videos
+        Output:
+            all_rewards: Mean and standard deviation for discounted return
+            episode_steps: Mean and standard deviation for episode lengths
+            all_scores: Mean and standard deviation for undiscounted return
+        '''
         all_rewards = []
         episode_steps = []
         all_scores = []
 
+        # Boolean
         if(count_rendering==0):
             pass
             # self.env = wrappers.Monitor(self.env, self.video_path, video_callable=None,force=True)
@@ -113,14 +127,13 @@ class Agent:
 
                 action,_ = self.q_prediction(sess,temp_state)
                 action = np.squeeze(action)
+
                 # Step in enviroment
                 next_state_test,reward,done,_ = self.env.step(action)
 
                 limited_reward = limit_return(reward)
 
                 next_frame_test = self.frame_preprocess(next_state_test)
-
-                # Add next frame to the stack
 
                 self.add_frame_test(next_frame_test)
 
@@ -141,7 +154,18 @@ class Agent:
 
     @profile
     def action(self,sess,experiments,construct_agent,record_videos):
+        '''Function to test agent performance on test set with memory profiler
 
+        Args:
+            sess: Tensorflow session
+            experiments: Number of episodes to execute
+            construct_agent: Render the environment for display (True/False)
+            record_videos: Initialization for wrapper for recording videos
+        Output:
+            all_rewards: Mean and standard deviation for discounted return
+            episode_steps: Mean and standard deviation for episode lengths
+            all_scores: Mean and standard deviation for undiscounted return
+        '''
         all_rewards = []
         episode_steps = []
         all_scores = []
@@ -204,6 +228,13 @@ class Agent:
 
 
     def create_experience_replay_buffer(self,sess):
+        '''Function to create experience replay buffer
+
+        Args:
+            sess: Tensorflow session
+        Out:
+            self.experience_buffer_episodes: Memory replay buffer
+        '''
 
         for iteration in range(self.experience_buffer_size):
 
@@ -254,26 +285,36 @@ class Agent:
 
     def build_dqn(self):
 
+        '''Function to create DQN network in tensorflow
+
+        Args:
+
+        Out:
+
+        '''
+
         tf.reset_default_graph()
         tf.set_random_seed(self.seeding)
 
-        # Place holders for 4 screen stacked inputs to NN
+        # Placeholder for current 4 screen stacked inputs to NN
         self.state_arrays = tf.placeholder(shape=[None, self.state_dims * self.frame_stack_size], dtype=tf.float32)
+        # Placeholder for next 4 screen stacked inputs to NN
         self.next_state_arrays = tf.placeholder(shape=[None, self.state_dims * self.frame_stack_size], dtype=tf.float32)
-        # self.current_actions_holder = tf.placeholder(shape=[None,self.num_actions], dtype=tf.float32)
-        # self.next_actions_holder  = tf.placeholder(shape=[None,self.num_actions], dtype=tf.float32)
+        # Placeholder for rewards
         self.rewards_holder = tf.placeholder(shape=[None,], dtype=tf.float32)
+        # Placeholder to checking terminal states
         self.done_holder = tf.placeholder(shape=[None,], dtype=tf.float32)
 
-        # Create convolutional networks
+        # Create convolutional network for Q-Network
         with tf.variable_scope('Q_net'):
             self.q_network_current = self.create_q_network(self.num_actions,self.state_arrays)
-
+        # Create convolutional network for T-Network
         with tf.variable_scope('T_net'):
             self.t_network_current = tf.stop_gradient(self.create_q_network(self.num_actions,self.next_state_arrays))
 
         q_prediction_matrix = tf.reshape(self.q_network_current,shape=[-1,self.num_actions,self.discrete_levels])
 
+        # Receive action vector and action values for Q-Network
         q_prediction_actions,q_prediction_value = discretize_actions(q_prediction_matrix)
 
         self.q_predict = q_prediction_actions
@@ -282,18 +323,18 @@ class Agent:
 
         t_prediction_matrix = tf.reshape(self.t_network_current,shape=[-1,self.num_actions,self.discrete_levels])
 
+        # Receive action vector and action values for T-Network
         t_prediction_actions,t_prediction_value = discretize_actions(t_prediction_matrix)
 
         self.t_predict = t_prediction_actions
 
         self.max_q_new = t_prediction_value * self.done_holder
 
+        # New action value estimate
         self.new_av = self.rewards_holder + (self.discount * self.max_q_new)
 
         #temporal difference
         self.td = (self.new_av-self.current_av)
-
-        # Be sure to clip the gradients so they don't vanish
 
         self.loss = tf.reduce_mean(tf.square(self.td))
 
@@ -323,6 +364,7 @@ class Agent:
         self.init = tf.global_variables_initializer()
         self.saver = tf.train.Saver()
 
+        # T-Network update sequence from Q-Network
         with tf.name_scope("update_target_net"):
             self.target_network_up = []
 
@@ -337,73 +379,94 @@ class Agent:
             self.target_network_up = tf.group(*self.target_network_up)
 
     def update_target_network(self,sess):
-
+        '''Function to update T-Network from Q-Network'''
         return sess.run([self.target_network_up])
 
-    # Q Network function creation
     def create_q_network(self,num_actions,state_dims):
+        '''Function to create the DQN graph
+
+        Args:
+            num_actions: Number of actions possible in game state-space
+            state_dims: Number of observations possible in game state-space
+        '''
 
         input_layer = tf.reshape(state_dims,[-1,self.state_dims,self.frame_stack_size,1])
 
-        # 3 Convolutional Layers as specified in Mnih DQN paper
-        # 32 20x20 feature map
+        # Conv Layer 1
         conv_layer_1 = tf.layers.batch_normalization(tf.layers.conv2d(inputs=input_layer,kernel_size=[4,2],padding='valid',filters=32,strides=(1,1),activation=tf.nn.relu))
 
-        # 64 9x9 feature map
+        # Conv Layer 2
         conv_layer_2 = tf.layers.batch_normalization(tf.layers.conv2d(inputs=conv_layer_1,kernel_size=[3,2],padding='valid',filters=64,strides=(1,1),activation=tf.nn.relu))
 
-        # 64 7x7 feature map
+        # Conv Layer 3
         conv_layer_3 = tf.layers.batch_normalization(tf.layers.conv2d(inputs=conv_layer_2, kernel_size=2, padding='valid', filters=64, strides=(1,1),activation=tf.nn.relu))
 
         conv_2d_flatten = tf.contrib.layers.flatten(conv_layer_3)
 
         fully_connected = tf.layers.batch_normalization(tf.layers.dense(inputs=conv_2d_flatten,units=512,activation=tf.nn.relu))
-
+        # Output layer
         Q = tf.layers.batch_normalization(tf.layers.dense(inputs=fully_connected,units=num_actions*self.discrete_levels))
 
         return Q
 
-    # Function to train network
-    def train(self,sess,current_states,next_states,rewards,done_flag):
 
+    def train(self,sess,current_states,next_states,rewards,done_flag):
+        '''Function to train neural network
+
+        Args:
+            sess: Tensorflow session
+            current_states: Current state of environment
+            next_statesL Next state of environment
+            rewards: Reward received from environment
+            done_flag: Boolean flag to check for terminal states
+        '''
         return sess.run([self.optimize,self.loss,self.summary_merged,self.q_network_current],
                         feed_dict = {self.state_arrays: current_states,
                                      self.next_state_arrays: next_states,
                                      self.rewards_holder: rewards,
                                      self.done_holder: done_flag})
 
-    # Function call to predict next Q (return)
     def q_prediction(self,sess,x_input):
+        ''' Function call to predict next Q return
 
+        Args:
+            sess: Tensorflow session
+            x_input: Current environment state vector
+        '''
         return sess.run([self.q_predict,self.q_network_current], feed_dict = {self.state_arrays:x_input})
 
     def q_prediction_target(self,sess,x_input):
+        ''' Function call to predict next T return
 
+        Args:
+            sess: Tensorflow session
+            x_input: Current environment state vector
+        '''
         return sess.run([self.t_predict,self.t_network_current], feed_dict = {self.next_state_arrays:x_input})
 
 
     def add_episode(self,sample):
-
+        '''Add sample to experience replay buffer'''
         self.experience_buffer_episodes.append(sample)
 
     def sample_episodes(self,batch):
-
+        '''Sample a random batch from experience replay buffer'''
         batch = min(batch,len(self.experience_buffer_episodes))
 
         return random.sample(tuple(self.experience_buffer_episodes),batch)
 
     def add_frame_train(self,frame,repeat=1):
-
+        '''Add a state to current history for training'''
         for count in range(repeat):
             self.frame_buffer_train.append(frame)
 
     def add_frame_test(self,frame,repeat=1):
-
+        '''Add a state to current history for testing'''
         for count in range(repeat):
             self.frame_buffer_test.append(frame)
 
     def compile_frames_train(self):
-
+        '''Stack frames to get a complete history of 4'''
         compiled_frames_train = np.array(list(self.frame_buffer_train))
 
         return compiled_frames_train
@@ -415,6 +478,15 @@ class Agent:
         return compiled_frames_test
 
     def replay(self,epochs,batch_size,training_mode=False,construct_agent=False,record_videos=False):
+        '''Function to train or test agent
+
+        Args:
+            epochs: The number of epochs to train the agent over
+            batch_size: Batch of samples to extract
+            training_mode: Boolean to train or test agent
+            construct_agent: Boolean to rendering environment
+            record_videos: Boolean to record videos
+        '''
 
         with tf.Session() as sess:
 
@@ -554,8 +626,7 @@ class Agent:
                 self.saver.restore(sess,self.model_path+'model.ckpt')
                 print('Retrieving model from:'+self.model_path+'model.ckpt')
                 num_parameters = self.count_parameters(sess)
-                mean_reward, std_reward, mean_experiment_length, std_experiment_length, mean_score, std_score = self.action(sess, 10,
-                                                                                                            construct_agent,record_videos)
+                mean_reward, std_reward, mean_experiment_length, std_experiment_length, mean_score, std_score = self.action(sess, 100,construct_agent,record_videos)
                 print('Mean Reward:' + str(mean_reward) + ', Std Reward:' + str(
                     std_reward) + ', Mean Epi Length:' + str(mean_experiment_length) + ', Std Epi Length:' + str(
                     std_experiment_length))
@@ -566,13 +637,12 @@ class Agent:
                 df.to_excel(writer, sheet_name='Sheet1')
                 writer.save()
 
-# # Function for preprocessing input screen for games
     def frame_preprocess(self,input):
-
+        '''Function to preprocess environment state received'''
         return input
 
     def count_parameters(self,sess):
-        """Returns the number of parameters of a computational graph."""
+        """Returns the number of parameters from the computational graph."""
         parameter_trace_network = dict()
         variables_names     = [v.name for v in tf.trainable_variables()]
         values              = sess.run(variables_names)

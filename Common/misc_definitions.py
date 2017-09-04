@@ -2,6 +2,8 @@
 # Institution: University College London
 # Developer: Russel Daries (16079408)
 
+# Import names required for Roboschool environment
+
 env_pend = 'RoboschoolInvertedPendulum-v1'
 env_pend_swing = 'RoboschoolInvertedPendulumSwingup-v1'
 env_pend_double ='RoboschoolInvertedDoublePendulum-v1'

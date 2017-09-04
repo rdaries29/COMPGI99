@@ -2,13 +2,14 @@
 # Institution: University College London
 # Developer: Russel Daries (16079408)
 
+# Import required libraries and packages
 import numpy as np
 import tensorflow as tf
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-
+# Function for limiting returns from environment
 def limit_return(reward):
     if reward > 1:
         return 1
@@ -19,6 +20,7 @@ def limit_return(reward):
     else:
         return 0
 
+# Function to return mean and standard deviation of input vector
 def results(results_vector):
 
     mean_result = np.mean(results_vector)
@@ -26,6 +28,7 @@ def results(results_vector):
 
     return mean_result, std_result
 
+# Convert an input vector to one-hot encoding
 def one_hot_convert(vector,num_actions):
 
     vector = np.array(vector)
@@ -36,6 +39,7 @@ def one_hot_convert(vector,num_actions):
 
     return one_hot_vec
 
+# Function to check if terminal state reached.
 def done_state_check(next_states,batch_size):
 
     done_flags_vec = np.ones(batch_size)
@@ -59,12 +63,11 @@ def plot_data(metric, xlabel, ylabel,colour,filename):
     plt.grid(True)
     plt.xlabel(xlabel, fontsize=12)
     plt.ylabel(ylabel, fontsize=12)
-    # plt.title(title, fontsize=22)
     plt.savefig(filename+ '_metrics.pdf', bbox_inches='tight', format='pdf', dpi=50)
     plt.close()
 
 def action_value_selection(action_selection_matrix,value_selection_matrix,ddqn_prediction,discrete_level):
-
+    '''Function to map output node index (output_nodes_vec) to quantized action vector for continious control '''
     # Constructing the action vector
     maximum_indices = tf.argmax(action_selection_matrix,axis=2)
     action_matrix = quantize(maximum_indices)
@@ -82,7 +85,7 @@ def action_value_selection(action_selection_matrix,value_selection_matrix,ddqn_p
     return action_matrix,maximum_values
 
 def quantize(maximum_index_vector):
-
+    '''Apply map function for discretization of selected nodes'''
     out_tensor = tf.map_fn(lambda x: (0.5*x)-1,tf.cast(maximum_index_vector,dtype=tf.float32))
 
     return out_tensor

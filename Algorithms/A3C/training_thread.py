@@ -20,7 +20,21 @@ PERFORMANCE_LOG_INTERVAL = 1000
 class worker_training_thread(object):
 
     def __init__(self,thread_index,master_network,initial_learning_rate,grad_applier,max_time_step_env,action_size,observation_size,game_name,all_paths,epoch_size,training_mode,device):
+        '''Function for initializing thread neural network
 
+        Args:
+            thread_index: Count of thread index
+            master_network: Central neural network of A3C (Parent)
+            initial_learning_rate: Learning rate for Actor-Critic Network
+            grad_applier: Grad applier function for accumlating gradients
+            max_time_step_env: Maximum time step for global training
+            action_size: Size of action state-space
+            observation_size: Size of oberservation state-space
+            game_name: Environment name for training and testing
+            all_paths: Dictionary of all directories for model reading and writing
+            epoch_size: Epoch size
+            device: GPU or CPU being used
+        '''
         self.thread_index = thread_index
         self.learning_rate = tf.placeholder(dtype = tf.float32)
         self.initial_learning_rate = initial_learning_rate
@@ -38,13 +52,17 @@ class worker_training_thread(object):
         self.local_network = lstm_ac_network(action_size,observation_size,thread_index,all_paths,device)
         self.local_network.prepare_loss(self.entropy_beta)
 
+        # Get gradient variables associated with local network
         with tf.device(device):
             var_refs = [v._ref() for v in self.local_network.get_vars()]
             self.gradients = tf.gradients(self.local_network.total_loss, var_refs)
 
+        # Accumlate initial gradients
         self.apply_gradients = grad_applier.apply_gradients(master_network.get_vars(),self.gradients)
 
+        # Copy all tunable paramters from master network to local network
         self.sync = self.local_network.sync_from(master_network)
+        # Initialize game for local network
         self.game_state = game_state(self.game_name,self.rand_seeding,self.construct_agent,self.thread_index,all_paths,training_mode,False)
         self.local_t = 0
         self.initial_learning_rate = initial_learning_rate
@@ -58,19 +76,42 @@ class worker_training_thread(object):
         self.epoch_loss = []
 
     def _anneal_learning_rate(self, global_time_step):
+        '''Function to linearly annealing learning rate
+
+        Args:
+            global_time_step: Global time step counter
+        Out:
+            learning_rate: linearly annealed learning rate
+        '''
         learning_rate = self.initial_learning_rate * (self.max_global_time_step - global_time_step) / self.max_global_time_step
         if learning_rate < 0.0:
             learning_rate = 0.0
         return learning_rate
 
     def choose_action(self, pi_values):
+        '''Function to sample action given policy distribution'''
         return np.random.choice(range(len(pi_values)), p=pi_values)
 
     def set_start_time(self, start_time):
+        '''Function to assigning start time for every cycle of thread'''
         self.start_time = start_time
 
     def process(self, sess, global_t,thread_sample_time,epoch_counter):
+        '''Function to train agents and accumlate experience and then apply gradients
 
+        Args:
+            sess: Tensorflow session
+            global_t: Global time step for master network counter
+            thread_sample_time: Sample time of the local network
+            epoch_counter: Counter of epochs
+        Out:
+            epoch_counter: Counter of epochs
+            diff_local_t: Difference in time step based on experience
+            epoch_reward_discounted: Discounted Return
+            epoch_reward_undiscounted: Undiscounted return
+            episode_length: Length of episodes
+            loss: Loss associated with local network
+        '''
         states = []
         actions = []
         rewards_undiscounted = []
@@ -132,7 +173,7 @@ class worker_training_thread(object):
 
             self.local_t += 1
 
-            # s_t1 -> s_t
+            # Update current state to next state
             self.game_state.update()
 
             if terminal:
@@ -197,7 +238,6 @@ class worker_training_thread(object):
             elapsed_time = time.time() - self.start_time
             steps_per_sec = global_t / elapsed_time
 
-        # return advanced local step size
         diff_local_t = self.local_t - start_local_t
         return diff_local_t,epoch_counter,self.epoch_reward_discounted,self.epoch_reward_undiscounted,self.epoch_episode_length,self.epoch_loss
 

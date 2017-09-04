@@ -2,6 +2,7 @@
 # Institution: University College London
 # Developer: Russel Daries (16079408)
 
+# Import required libraries and packages
 import numpy as np
 import pandas as pd
 import tensorflow as tf

@@ -2,13 +2,14 @@
 # Institution: University College London
 # Developer: Russel Daries (16079408)
 
+# Import nesscary libraries and packages
 import numpy as np
 import tensorflow as tf
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-
+# Function for limiting returns from environment
 def limit_return(reward):
     if reward > 1:
         return 1
@@ -19,6 +20,7 @@ def limit_return(reward):
     else:
         return 0
 
+# Function to return mean and standard deviation of input vector
 def results(results_vector):
 
     mean_result = np.mean(results_vector)
@@ -33,7 +35,6 @@ def plot_data(metric, xlabel, ylabel,colour,filename):
     plt.grid(True)
     plt.xlabel(xlabel, fontsize=12)
     plt.ylabel(ylabel, fontsize=12)
-    # plt.title(title, fontsize=22)
     plt.savefig(filename+ '_metrics.pdf', bbox_inches='tight', format='pdf', dpi=50)
     plt.close()
 

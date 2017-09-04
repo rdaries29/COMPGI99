@@ -2,6 +2,7 @@
 # Institution: University College London
 # Developer: Russel Daries (16079408)
 
+# Import nesscary libraries and packages
 import tensorflow as tf
 import gym
 import roboschool
@@ -14,7 +15,17 @@ from misc_definitions import *
 class game_state(object):
 
     def __init__(self,game_name,rand_seed,construct_agent,thread_index,all_paths,training_mode,count_rendering):
+        '''Function to initialze environment for local networks
 
+        Args:
+            game_name: Environment name for Roboschool
+            rand_seed: Seeding for random function
+            construct_agent: Render environment for display purposes
+            thread_index: Index of thread currently in use
+            all_paths: Dictionary with all relevant directories
+            training_mode: Boolean for training or test mode
+            count_rendering: Rendering of gym wrapper for recording videos
+        '''
         self.game_name = game_name
         self.frame_stack_size = 4
         self.frame_buffer_train = deque(maxlen = self.frame_stack_size)
@@ -48,29 +59,32 @@ class game_state(object):
         self.s_t = self.compile_frames_train()
 
     def update(self):
+        '''Update environment state from current to next state'''
         self.s_t = self.s_t1
 
     def frame_preprocess(self,state):
+        '''Preprocess state given by environment'''
         return state
 
     def add_frame_train(self,frame,repeat=1):
-
+        '''Add frame to train buffer stack'''
         for count in range(repeat):
             self.frame_buffer_train.append(frame)
 
     def add_frame_test(self,frame,repeat=1):
+        '''Add frame to test buffer stack'''
 
         for count in range(repeat):
             self.frame_buffer_test.append(frame)
 
     def compile_frames_train(self):
-
+        '''Compile training frames'''
         compiled_frames_train = np.array(list(self.frame_buffer_train))
 
         return compiled_frames_train
 
     def compile_frame_test(self):
-
+        '''Compile testing frames'''
         compiled_frames_test = np.array(list(self.frame_buffer_test))
 
         return compiled_frames_test
