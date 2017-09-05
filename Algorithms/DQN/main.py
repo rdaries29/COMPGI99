@@ -2,6 +2,7 @@
 # Institution: University College London
 # Developer: Russel Daries (16079408)
 
+# Import required libraries and packages
 import sys
 sys.path.insert(0,'../../Common')
 
@@ -9,20 +10,21 @@ from common_imports import *
 from class_definitions import *
 from misc_definitions import *
 
-learning_rate = 0.00025
+# Algorithm parameters
+learning_rate = 0.0001
 epochs = 30
 batch_size = 256
 experience_buffer_size = 1000000
 construct_agent = False
 discount = 0.99
 save_path_var = True
-training_mode = True
+training_mode = False
 record_test_videos = False
 
 # Problem Number
 algorithm = 'DQN'
 
-# Game
+# Game Selection
 games = ['hopper','walker','humanoid','humanoidflag']
 games_dict = {'hopper':env_hop,'walker':env_walk,'humanoid':env_human,'humanoidflag':env_human_flag}
 game_name = games[0]
@@ -54,10 +56,6 @@ def main(agent):
 
     env = gym.make(agent)
     print('-------Creating Agent-------')
-    print(env.action_space)
-    print(env.observation_space)
-    print(env.action_space.high)
-    print(env.action_space.low)
 
     agent = Agent(env,learning_rate,experience_buffer_size,discount,all_paths,algorithm,training_mode,game_name)
 
